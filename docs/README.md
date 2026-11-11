@@ -1,0 +1,112 @@
+---
+icon: house-chimney
+---
+
+# Welcome to Aurora Intents
+
+**Aurora Intents** is the **cross-chain execution layer** for on-chain **applications**.
+
+It enables **users** and **systems** to move assets, execute actions, and access liquidity across chains without friction.
+
+***
+
+### Our Products
+
+<table data-view="cards"><thead><tr><th></th><th data-type="content-ref"></th><th data-type="content-ref"></th><th data-hidden data-card-target data-type="content-ref"></th><th data-hidden data-card-cover data-type="image">Cover image</th></tr></thead><tbody><tr><td><a href="https://app.gitbook.com/s/Lp9IVb8Xkubcbzzk80Br/intents-connect"><strong>Intents Connect</strong></a><br><br>The core infrastructure for <strong>cross-chain execution</strong>.</td><td><a href="intents-connect/readme-1.md">readme-1.md</a></td><td><a href="api-reference/intents-connect-api-reference/">intents-connect-api-reference</a></td><td><a href="intents-connect/readme-1.md">readme-1.md</a></td><td><a href=".gitbook/assets/connect_card.png">connect_card.png</a></td></tr><tr><td><a href="https://app.gitbook.com/s/Lp9IVb8Xkubcbzzk80Br/intents-deposits"><strong>Intents Deposits</strong></a><br><br>The simplest way to enable <strong>cross-chain deposits</strong> into your app or protocol.</td><td><a href="intents-deposits/what-are-intents-deposits.md">what-are-intents-deposits.md</a></td><td><a href="intents-deposits/quickstart/">quickstart</a></td><td><a href="https://app.gitbook.com/s/Lp9IVb8Xkubcbzzk80Br/intents-deposits">Intents Deposits</a></td><td><a href=".gitbook/assets/deposits_card.png">deposits_card.png</a></td></tr><tr><td><p><a href="intents-swap/what-is-swap-api.md"><strong>Swap API</strong></a></p><p></p><p>Programmatic <strong>cross-chain swaps</strong> from your own UI, backend or agent. No widget, no bridging logic.</p></td><td><a href="intents-swap/what-is-swap-api.md">what-is-swap-api.md</a></td><td><a href="api-reference/swap-api-reference/">swap-api-reference</a></td><td><a href="intents-swap/what-is-swap-api.md">what-is-swap-api.md</a></td><td><a href=".gitbook/assets/c4d02309-95c7-4e69-ba93-64edf5721fb2.png">c4d02309-95c7-4e69-ba93-64edf5721fb2.png</a></td></tr><tr><td><a href="https://app.gitbook.com/s/Lp9IVb8Xkubcbzzk80Br/intents-swap"><strong>Swap Widget</strong></a><br><br>A plug-and-play component to enable <strong>cross-chain swaps</strong> inside <strong>your app</strong>.</td><td><a href="intents-swap/what-is-swap-widget.md">what-is-swap-widget.md</a></td><td><a href="getting-started/api-keys-and-fees.md">api-keys-and-fees.md</a></td><td><a href="https://app.gitbook.com/s/Lp9IVb8Xkubcbzzk80Br/intents-swap">Intents Swap</a></td><td><a href=".gitbook/assets/swaps_card.png">swaps_card.png</a></td></tr></tbody></table>
+
+***
+
+### 🚀 Intents Connect
+
+Intents Connect allows applications to execute cross-chain actions without managing bridges, liquidity, or complex routing logic. Powered by Near Intents.
+
+#### Use it to:
+
+* Enable cross-chain swaps and on-chain actions
+* Route transactions across chains automatically
+* Chain on chain actions
+
+#### Explore:
+
+* [What is Intents Connect?](intents-connect/readme-1.md)
+* [Supported chains](intents-connect/supported-chains.md)
+* [Examples](intents-connect/examples/)
+
+***
+
+### 💸 Intents Deposits
+
+The simplest way to enable **cross-chain deposits** into your app or protocol.
+
+Users can deposit from any chain and asset, while your app receives funds on the target chain, with optional execution on arrival.
+
+#### Use it to:
+
+* Accept deposits from any chain
+* Simplify onboarding for non-native users
+* Route funds directly into contracts (vaults, RWAs, etc.)
+
+#### Explore:
+
+* [What are Intents Deposits?](intents-deposits/what-are-intents-deposits.md)
+* [Quickstart](intents-deposits/quickstart/)
+* [Supported chains and assets](intents-deposits/supported-chains.md)
+
+***
+
+### 🔄 Swap Widget
+
+A plug-and-play component to enable **cross-chain swaps inside your app**.
+
+The easiest way to integrate cross-chain functionality; no backend, no liquidity management, no infrastructure required.
+
+#### Use it to:
+
+* Add cross-chain swaps in minutes
+* Let users swap across chains without switching networks
+* Create additional revenue stream for your app
+
+#### Explore:
+
+* [What is Swap Widget?](intents-swap/what-is-swap-widget.md)
+* [API Keys & Fees](getting-started/api-keys-and-fees.md)
+* [Widget integration](intents-swap/widget-integration.md)
+* [What is Swap API?](intents-swap/what-is-swap-api.md)
+
+***
+
+### 🔌 Swap API
+
+The REST API behind Aurora Intents swaps. The same engine that powers the Swap Widget and Intents Deposits, exposed directly so you can run cross-chain swaps from your own UI, backend or agent.
+
+#### Use it to:
+
+* Add cross-chain swaps to a wallet or exchange that already has its own swap screen
+* Run headless swaps from a backend, trading bot or AI agent
+* Quote, deposit and track swaps with full control over slippage, refunds and recipients
+
+#### Explore:
+
+* [What is Swap API?](intents-swap/what-is-swap-api.md)
+* [Swap API Reference](api-reference/swap-api-reference/)
+* [API Keys & Fees](getting-started/api-keys-and-fees.md)
+
+***
+
+### 🧭 How to get started
+
+Not sure where to begin?
+
+* Building a frontend **DeFi app or wallet** → Start with **Swap Widget**
+* Building a **wallet, bot or backend with your own UI** → Start with **Swap API**
+* Need **cross-chain deposits / funding flows** → Start with **Intents Deposits**
+* Want full control over **cross-chain execution logic** → Explore **Intents Connect**
+
+***
+
+### 💬 Need help?
+
+* Join the community on [Telegram](https://t.me/auroraisnear/377725)
+* Reach out to the team on Telegram
+* Explore [Use Cases](getting-started/use-cases.md) in the docs
+
