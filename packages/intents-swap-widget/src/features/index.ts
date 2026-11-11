@@ -1,6 +1,7 @@
 export * from './BalanceRpcLoader';
 export * from './ChainsDropdown';
 export * from './SendAddress';
+export * from './RefundAddressStep';
 export * from './SubmitButton';
 export * from './SuccessScreen';
 export * from './SwapQuote';
@@ -9,6 +10,9 @@ export * from './TokensList';
 export * from './TokensModal';
 export * from './SwapDirectionSwitcher';
 export * from './ExternalDeposit';
+export * from './ExternalDepositWaitingHint';
 export * from './DepositMethodSwitcher';
 export * from './WalletCompatibilityCheck';
+export * from './ChainNotSupportedModal';
 export * from './DepositSummary';
+export * from './TransactionHistory';

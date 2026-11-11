@@ -1,11 +1,14 @@
-import { useSupportedChains } from '../../hooks/useSupportedChains';
 import { cn } from '@/utils/cn';
 import { useConfig } from '@/config';
 import { useUnsafeSnapshot } from '@/machine/snap';
 import { TokenIcon } from '@/components/TokenIcon';
 import { TinyNumber } from '@/components/TinyNumber';
+import { useBalancesUpdate } from '@/context/BalancesUpdateContext';
+import { getTokenBalanceKey } from '@/utils/intents/getTokenBalanceKey';
 import { getUsdDisplayBalance } from '@/utils/formatters/getUsdDisplayBalance';
 import type { Token, TokenBalance } from '@/types/token';
+import { ImmediatePrice } from './ImmediatePrice';
+import { useSupportedChains } from '../../hooks/useSupportedChains';
 
 type Msg = { type: 'on_select_token'; token: Token };
 
@@ -13,6 +16,7 @@ type Props = {
   token: Token;
   balance: TokenBalance;
   showBalance?: boolean;
+  variant: 'source' | 'target';
   isNotSelectable?: boolean;
   isFocused?: boolean;
   className?: string;
@@ -22,6 +26,7 @@ type Props = {
 export const TokenItem = ({
   token,
   balance,
+  variant,
   showBalance = true,
   isNotSelectable,
   isFocused,
@@ -29,9 +34,12 @@ export const TokenItem = ({
   onMsg,
 }: Props) => {
   const { ctx } = useUnsafeSnapshot();
-  const { appName } = useConfig();
+  const { showConversionPreview } = useConfig();
+
   const displayUsdBalance = getUsdDisplayBalance(balance, token);
   const { supportedChains } = useSupportedChains();
+  const { pendingBalances } = useBalancesUpdate();
+
   const isTokenSupported =
     supportedChains.includes(token.blockchain) || token.isIntent;
 
@@ -54,28 +62,38 @@ export const TokenItem = ({
         }>
         <TokenIcon
           token={token}
-          chainShowIcon={!token.isIntent}
           className={cn('group-hover:border-sw-gray-800 transition-colors', {
             'border-sw-gray-800': isFocused,
             'border-sw-gray-900': !isFocused,
           })}
         />
 
-        <div className="gap-sw-xs mr-auto flex flex-col">
-          <span className="text-sw-label-md text-sw-gray-50">{token.name}</span>
+        <div className="gap-sw-xs mr-auto flex min-w-0 flex-col">
+          <div className="flex min-w-0 items-center gap-sw-sm">
+            <span className="text-sw-label-md text-sw-gray-50 truncate">
+              {token.name}
+            </span>
+            {showConversionPreview && (
+              <ImmediatePrice
+                currentToken={token}
+                variant={variant}
+                className="hidden group-hover:block"
+              />
+            )}
+          </div>
           {token.isIntent ? (
-            <div className="flex items-center gap-sw-xs">
-              <span className="text-sw-label-md text-sw-gray-300">
+            <div className="flex min-w-0 items-center gap-sw-xs">
+              <span className="text-sw-label-md text-sw-gray-300 shrink-0">
                 {token.symbol}
               </span>{' '}
-              <span className="text-sw-label-sm text-sw-gray-300">{`on ${appName} ${token.chainName.toLowerCase() !== 'near' && hasBalance ? `(${token.chainName})` : ''}`}</span>
+              <span className="text-sw-label-sm text-sw-gray-300 min-w-0 truncate">{`on Near Intents ${token.chainName.toLowerCase() !== 'near' && hasBalance ? `(${token.chainName})` : ''}`}</span>
             </div>
           ) : (
-            <div className="flex items-center gap-sw-xs">
-              <span className="text-sw-label-md text-sw-gray-300">
+            <div className="flex min-w-0 items-center gap-sw-xs">
+              <span className="text-sw-label-md text-sw-gray-300 shrink-0">
                 {token.symbol}
               </span>{' '}
-              <span className="text-sw-label-sm text-sw-gray-300">{`on ${token.chainName}`}</span>
+              <span className="text-sw-label-sm text-sw-gray-300 min-w-0 truncate">{`on ${token.chainName}`}</span>
             </div>
           )}
         </div>
@@ -85,7 +103,12 @@ export const TokenItem = ({
             {balance === undefined && !token.isIntent ? (
               <span className="h-[16px] w-[60px] animate-pulse rounded-full bg-sw-gray-700" />
             ) : (
-              <span className="h-[16px] text-sw-label-md text-sw-gray-50">
+              <span
+                className={cn('h-[16px] text-sw-label-md text-sw-gray-50', {
+                  'animate-pulse': Object.keys(pendingBalances).includes(
+                    getTokenBalanceKey(token),
+                  ),
+                })}>
                 {hasBalance && (
                   <TinyNumber
                     decimals={token.decimals}

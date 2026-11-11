@@ -1,21 +1,25 @@
 import { useMemo } from 'react';
 
-import { Msg, TokenInputWithToken } from './TokenInput';
-import { TokenInputEmpty } from './TokenInputEmpty';
-import { useTokenInputBalance } from './hooks';
 import { formatBigToHuman } from '@/utils/formatters/formatBigToHuman';
 import { useComputedSnapshot, useUnsafeSnapshot } from '@/machine/snap';
 
+import { useTokenInputBalance } from './hooks';
+import { TokenInputWithToken } from './TokenInput';
+import { TokenInputEmpty } from './TokenInputEmpty';
+import type { Msg, Props as TokenInputProps } from './TokenInput';
+
 export type Props = {
-  isChanging?: boolean;
-  onMsg: (msg: Msg) => void;
   heading: string;
+  isChanging?: boolean;
+  state?: TokenInputProps['state'];
+  onMsg: (msg: Msg) => void;
 };
 
 export const TokenInputTarget = ({
+  state,
+  heading,
   isChanging = false,
   onMsg,
-  heading,
 }: Props) => {
   const { ctx } = useUnsafeSnapshot();
   const { usdTradeDelta } = useComputedSnapshot();
@@ -39,9 +43,13 @@ export const TokenInputTarget = ({
       token={ctx.targetToken}
       balance={targetTokenBalance}
       quoteUsdDelta={usdTradeDelta?.percentage}
-      quoteUsdValue={ctx.quote && parseFloat(ctx.quote.amountOutUsd)}
+      quoteUsdValue={
+        ctx.quote && ctx.quote.type !== 'QUOTE_DEPOSIT_ANY_AMOUNT'
+          ? parseFloat(ctx.quote.amountOutUsd)
+          : undefined
+      }
       value={formatBigToHuman(ctx.targetTokenAmount, ctx.targetToken?.decimals)}
-      state={sourceInputState}
+      state={state ?? sourceInputState}
       showQuickBalanceActions={false}
       showBalance={true}
       onMsg={onMsg}

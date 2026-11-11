@@ -1,6 +1,9 @@
 import { useEffect } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 
+import { useCreator } from '@/hooks/useCreatorConfig';
+import { useApiKeys, useCreateApiKey, useTosAcceptance } from '@/api/hooks';
+import type { ApiKey } from '@/api/types';
 import { Header } from '../components';
 
 import { ApiKeyCard } from './ApiKeyCard';
@@ -9,13 +12,8 @@ import { ApiKeysNoAuth } from './ApiKeysNoAuth';
 import { ApiKeysSkeleton } from './ApiKeysSkeleton';
 import { CreateApiKey } from './CreateApiKey';
 
-import { DEFAULT_APP_KEY } from '@/constants';
-import { useCreator } from '@/hooks/useCreatorConfig';
-import { useApiKeys, useCreateApiKey } from '@/api/hooks';
-import type { ApiKey } from '@/api/types';
-
 const ApiKeysHeader = () => (
-  <div className="px-csw-2xl pt-csw-2xl pb-csw-4xl flex items-start justify-between gap-csw-lg border-b border-csw-gray-900">
+  <div className="pt-csw-2xl pb-csw-4xl flex items-start justify-between gap-csw-lg border-b border-csw-gray-900">
     <Header
       title="API keys"
       description="Create and manage API keys required to activate the Intents Studio widget. Each API key is linked to a specific fee setup."
@@ -34,21 +32,15 @@ export const ApiKeys = ({ onClickFees }: Props) => {
 
   const { status, data: apiKeys = [] } = useApiKeys();
   const { mutate: createApiKey, ...mutation } = useCreateApiKey();
+  const { data: tos, isLoading: isTosLoading } = useTosAcceptance();
 
-  const handleKeyRemoved = (key: string) => {
-    const newApiKeys = apiKeys.filter((apiKey) => apiKey.widgetApiKey !== key);
-
-    dispatch({
-      type: 'SET_API_KEY',
-      payload: newApiKeys[0]?.widgetApiKey ?? DEFAULT_APP_KEY,
-    });
-  };
+  const alreadyAccepted = tos?.accepted ?? false;
 
   useEffect(() => {
     if (mutation.status === 'success') {
       dispatch({
         type: 'SET_API_KEY',
-        payload: mutation.data.widgetApiKey,
+        payload: mutation.data.apiKey,
       });
     }
   }, [mutation.status]);
@@ -62,7 +54,10 @@ export const ApiKeys = ({ onClickFees }: Props) => {
     );
   }
 
-  if (status === 'pending') {
+  // Wait for the acceptance status too, so CreateApiKey renders its final state
+  // (checkbox vs. footer) directly instead of briefly flashing the checkbox
+  // before the ToS read resolves on a fresh load.
+  if (status === 'pending' || isTosLoading) {
     return (
       <>
         <ApiKeysHeader />
@@ -75,10 +70,11 @@ export const ApiKeys = ({ onClickFees }: Props) => {
     return (
       <>
         <ApiKeysHeader />
-        <ApiKeysEmpty
-          message="Unable to load API keys"
-          isCreatingKey={mutation.status === 'pending'}
-          onClickCreate={createApiKey}
+        <ApiKeysEmpty message="Unable to load API keys" />
+        <CreateApiKey
+          isLoading={mutation.status === 'pending'}
+          alreadyAccepted={alreadyAccepted}
+          onClick={createApiKey}
         />
       </>
     );
@@ -88,9 +84,11 @@ export const ApiKeys = ({ onClickFees }: Props) => {
     return (
       <>
         <ApiKeysHeader />
-        <ApiKeysEmpty
-          isCreatingKey={mutation.status === 'pending'}
-          onClickCreate={createApiKey}
+        <ApiKeysEmpty />
+        <CreateApiKey
+          isLoading={mutation.status === 'pending'}
+          alreadyAccepted={alreadyAccepted}
+          onClick={createApiKey}
         />
       </>
     );
@@ -103,15 +101,15 @@ export const ApiKeys = ({ onClickFees }: Props) => {
         {apiKeys.map((apiKey) => (
           <ApiKeyCard
             apiKey={apiKey}
-            key={apiKey.widgetApiKey}
+            key={apiKey.apiKey}
             onClickFees={onClickFees}
-            onKeyRemoved={handleKeyRemoved}
           />
         ))}
       </div>
 
       <CreateApiKey
         isLoading={mutation.status === 'pending'}
+        alreadyAccepted={alreadyAccepted}
         onClick={createApiKey}
       />
     </>

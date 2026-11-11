@@ -1,8 +1,17 @@
+import { machine } from '@/machine/machine';
+import type { Context } from '@/machine/context';
+import type { Machine } from '@/machine/machine';
+import { quoteReset } from './quoteReset';
 import { reset, type ResetPayload } from './reset';
 import { tokenSelectRotate } from './tokenSelectRotate';
 import { errorSet, type ErrorSetPayload } from './errorSet';
 import { quoteSet, type QuoteSetPayload } from './quoteSet';
 import { addressSet, type AddressSetPayload } from './addressSet';
+import { maxSlippageSet, type MaxSlippageSetPayload } from './maxSlippageSet';
+import {
+  refundToAddressSet,
+  type RefundToAddressSetPayload,
+} from './refundToAddressSet';
 import { tokenSelect, type TokenSelectPayload } from './tokenSelect';
 import { tokenSetAmount, type TokenSetAmountPayload } from './tokenSetAmount';
 import {
@@ -12,6 +21,7 @@ import {
 import { quoteSetStatus, type QuoteSetStatusPayload } from './quoteSetStatus';
 import { depositTypeSet, type DepositTypeSetPayload } from './depositTypeSet';
 import { externalDepositTxSet } from './externalDepositTxSet';
+import { retryExternalDeposit } from './retryExternalDeposit';
 import {
   type InputsValidatingPayload,
   setInputsValidating,
@@ -33,9 +43,14 @@ import {
   transferSetStatus,
   type TransferSetStatusPayload,
 } from './transferSetStatus';
-import { machine } from '@/machine/machine';
-import type { Context } from '@/machine/context';
-import type { Machine } from '@/machine/machine';
+import {
+  unsupportedChainSet,
+  type UnsupportedChainSetPayload,
+} from './unsupportedChainSet';
+import {
+  confidentialModeSet,
+  type ConfidentialModeSetPayload,
+} from './confidentialModeSet';
 
 export type TradeEvents = {
   reset: ResetPayload;
@@ -48,14 +63,20 @@ export type TradeEvents = {
   tokenSetDefault: TokenSetDefaultPayload;
   tokenSetBalance: TokenSetBalancePayload;
   addressSet: AddressSetPayload;
+  refundToAddressSet: RefundToAddressSetPayload;
+  maxSlippageSet: MaxSlippageSetPayload;
   errorSet: ErrorSetPayload;
   quoteSet: QuoteSetPayload;
+  quoteReset: null;
   depositTypeSet: DepositTypeSetPayload;
   externalDepositTxSet: boolean | undefined;
+  retryExternalDeposit: null;
   quoteSetStatus: QuoteSetStatusPayload;
   transferSetStatus: TransferSetStatusPayload;
   walletAddressSet: WalletAddressSetPayload;
   setInputsValidating: InputsValidatingPayload;
+  unsupportedChainSet: UnsupportedChainSetPayload;
+  confidentialModeSet: ConfidentialModeSetPayload;
 };
 
 const onEvent = <E extends keyof TradeEvents>(
@@ -78,11 +99,17 @@ export const registerEvents = () => {
   onEvent('depositTypeSet', depositTypeSet);
   onEvent('setInputsValidating', setInputsValidating);
   onEvent('externalDepositTxSet', externalDepositTxSet);
+  onEvent('retryExternalDeposit', retryExternalDeposit);
   onEvent('tokenSelect', tokenSelect);
   onEvent('addressSet', addressSet);
+  onEvent('maxSlippageSet', maxSlippageSet);
+  onEvent('refundToAddressSet', refundToAddressSet);
   onEvent('errorSet', errorSet);
   onEvent('quoteSet', quoteSet);
+  onEvent('quoteReset', quoteReset);
   onEvent('reset', reset);
+  onEvent('unsupportedChainSet', unsupportedChainSet);
+  onEvent('confidentialModeSet', confidentialModeSet);
 
   // use with caution since these just return a boolean flag and set
   // a specific error to the context

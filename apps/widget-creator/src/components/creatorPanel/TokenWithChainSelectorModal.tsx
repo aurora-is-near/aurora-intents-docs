@@ -2,11 +2,17 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, Search, Target, X } from 'lucide-react';
 
 import {
-  Chains,
+  ASSET_ICONS,
   CHAINS,
+  Chains,
+  Icon,
   SimpleToken,
 } from '@aurora-is-near/intents-swap-widget';
-import { useTokens } from '../../hooks/useTokens';
+import {
+  getTokenIcon,
+  useAvailableChains,
+  useTokens,
+} from '../../hooks/useTokens';
 import { getChainName } from '../../utils/get-chain-name';
 
 interface TokenWithChainSelectorProps {
@@ -25,6 +31,7 @@ export function TokenWithChainSelector({
   const [isChainDropdownOpen, setIsChainDropdownOpen] = useState(false);
 
   const allTokens = useTokens();
+  const availableChains = useAvailableChains();
 
   useEffect(() => {
     if (isOpen) {
@@ -41,6 +48,17 @@ export function TokenWithChainSelector({
   }
 
   const selectedChainData = CHAINS.find((c) => c.id === selectedChain);
+  const normalizeToken = (token: SimpleToken): SimpleToken => {
+    if (token.symbol.toLowerCase() === 'usdt0') {
+      return {
+        ...token,
+        symbol: 'USDT',
+        icon: getTokenIcon('USDT') ?? token.icon,
+      };
+    }
+
+    return token;
+  };
 
   return (
     <div className="z-50 w-full h-full fixed top-[0px] right-[0px]">
@@ -52,7 +70,7 @@ export function TokenWithChainSelector({
         }}
         onClick={onClose}>
         <div
-          className="relative z-50 mx-4 w-full max-w-[456px] min-h-[300px] max-h-[670px] rounded-csw-lg bg-csw-gray-900 shadow-lg overflow-hidden flex flex-col max-h-[90vh] mx-[10px]"
+          className="relative z-50 mx-[10px] w-full max-w-[456px] max-h-[90vh] rounded-csw-lg bg-csw-gray-900 shadow-lg overflow-hidden flex flex-col"
           onClick={(e) => e.stopPropagation()}>
           <div className="px-csw-2xl pt-csw-2xl">
             <header className="py-csw-md flex items-center justify-between mb-[14px]">
@@ -134,7 +152,7 @@ export function TokenWithChainSelector({
                         All networks
                       </span>
                     </button>
-                    {CHAINS.map((chain) => (
+                    {availableChains.map((chain) => (
                       <button
                         key={chain.id}
                         onClick={() => {
@@ -160,7 +178,7 @@ export function TokenWithChainSelector({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto hide-scrollbar px-csw-2xl max-h-[450px] min-h-[200px] mt-[20px]">
+          <div className="overflow-y-auto hide-scrollbar px-csw-2xl h-[450px] mt-[20px]">
             <div className="flex flex-col">
               {allTokens.length > 0 ? (
                 allTokens
@@ -172,8 +190,10 @@ export function TokenWithChainSelector({
                     return true;
                   })
                   .filter((token) => {
+                    const normalizedToken = normalizeToken(token);
+
                     if (searchQuery) {
-                      return token.symbol
+                      return normalizedToken.symbol
                         .toLowerCase()
                         .includes(searchQuery.toLowerCase());
                     }
@@ -181,29 +201,33 @@ export function TokenWithChainSelector({
                     return true;
                   })
                   .map((token) => {
+                    const normalizedToken = normalizeToken(token);
                     const tokenSymbol =
-                      token.symbol.toLowerCase() === 'wnear'
+                      normalizedToken.symbol.toLowerCase() === 'wnear'
                         ? 'NEAR'
-                        : token.symbol;
+                        : normalizedToken.symbol;
 
                     return (
                       <div
-                        key={token.assetId}
+                        key={`${token.assetId}-${token.blockchain}`}
                         onClick={() => {
-                          onSelectToken(token, token.blockchain);
+                          onSelectToken(normalizedToken, token.blockchain);
                           onClose();
                         }}
                         className="gap-[6px] px-[12px] py-[10px] flex cursor-pointer items-center rounded-csw-md transition-colors hover:bg-csw-gray-700">
                         {/* Token Icon */}
-                        <div className="relative h-full">
-                          {token.icon ? (
-                            <img
-                              src={token.icon}
-                              alt={tokenSymbol}
-                              className="w-[28px] h-[28px] rounded-full"
+                        <div className="relative w-[28px] h-full">
+                          {normalizedToken.icon ? (
+                            <Icon
+                              className="text-csw-gray-100 bg-csw-gray-800"
+                              icon={normalizedToken.icon}
+                              label={normalizedToken.symbol}
+                              size={28}
                             />
                           ) : (
-                            <div className="w-[28px] h-[28px] rounded-full bg-csw-gray-700" />
+                            (ASSET_ICONS[tokenSymbol.toLowerCase()] ?? (
+                              <div className="w-[28px] h-[28px] rounded-full bg-csw-gray-800" />
+                            ))
                           )}
                           {(() => {
                             const chain = CHAINS.find(

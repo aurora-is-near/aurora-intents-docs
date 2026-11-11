@@ -1,34 +1,33 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
-import { useTokens } from './useTokens';
-import { useUnsafeSnapshot } from '../machine';
-import { useIntentsAccountType } from './useIntentsAccountType';
 import { logger } from '@/logger';
-import { getIntentsAccountId } from '@/utils/intents/getIntentsAccountId';
 import { getIntentsBalances } from '@/utils/intents/getIntentsBalance';
 import { notReachable } from '@/utils/notReachable';
 import type { TokenBalances } from '@/types/token';
+import { useIntentsAccountId } from './useIntentsAccountId';
+import { useUnsafeSnapshot } from '../machine';
+import { useTokens } from './useTokens';
 
 export const useIntentsBalance = () => {
-  const { intentsAccountType } = useIntentsAccountType();
   const {
     ctx: { walletAddress },
   } = useUnsafeSnapshot();
 
   const { tokens } = useTokens();
+
+  // The token IDs are sorted so the array is a stable React Query cache key,
+  // regardless of the order tokens arrive in.
   const tokenIds = tokens
     .filter((token) => token.isIntent)
-    .map((token) => token.assetId);
+    .map((token) => token.assetId)
+    .sort();
 
-  const intentsAccountId = getIntentsAccountId({
-    walletAddress,
-    addressType: intentsAccountType,
-  });
+  const intentsAccountId = useIntentsAccountId();
 
   const query = useQuery<TokenBalances>({
-    enabled: !!walletAddress && !!intentsAccountId && tokens.length > 0,
-    queryKey: ['intentsBalances', intentsAccountId],
+    enabled: !!walletAddress && !!intentsAccountId && tokenIds.length > 0,
+    queryKey: ['intentsBalances', intentsAccountId, tokenIds],
     queryFn: async () => {
       if (!intentsAccountId) {
         return {};

@@ -1,26 +1,7 @@
 import { useMemo } from 'react';
+import { useConfig } from '../config';
 import { useUnsafeSnapshot } from '../machine';
-import { isEvmAddress } from '../utils/chains/isEvmAddress';
-import { isNearAddress } from '../utils/chains/isNearAddress';
-import { isSolanaAddress } from '../utils/chains/isSolanaAddress';
-
-const getIntentsAccountTypeFromAddress = (
-  address: string,
-): 'sol' | 'evm' | 'near' | undefined => {
-  if (isSolanaAddress(address)) {
-    return 'sol';
-  }
-
-  if (isEvmAddress(address)) {
-    return 'evm';
-  }
-
-  if (isNearAddress(address)) {
-    return 'near';
-  }
-
-  return undefined;
-};
+import { getIntentsAccountTypeFromAddress } from '../utils/chains/getIntentsAccountTypeFromAddress';
 
 /**
  * Determines the intents account type based on the active wallet addresses.
@@ -34,13 +15,17 @@ export const useIntentsAccountType = () => {
     ctx: { walletAddress },
   } = useUnsafeSnapshot();
 
+  const { intentsAccountType: configuredAccountType } = useConfig();
+
   const intentsAccountType = useMemo(() => {
     if (!walletAddress) {
       return;
     }
 
-    return getIntentsAccountTypeFromAddress(walletAddress);
-  }, [walletAddress]);
+    return (
+      configuredAccountType ?? getIntentsAccountTypeFromAddress(walletAddress)
+    );
+  }, [walletAddress, configuredAccountType]);
 
   return { intentsAccountType };
 };

@@ -1,13 +1,5 @@
 import { useEffect, useMemo } from 'react';
 
-import type { ListenerProps } from './types';
-import { IntentsAccountType } from '../../types/config';
-import { isSolanaAddress } from '../../utils/chains/isSolanaAddress';
-import { isEvmAddress } from '../../utils/chains/isEvmAddress';
-import { isNearAddress } from '../../utils/chains/isNearAddress';
-import { useExternalDefaultToken } from '../../hooks/useExternalDefaultToken';
-import { useIntentsAccountType } from '../../hooks';
-import { useSupportedChains } from '../../hooks/useSupportedChains';
 import { useConfig } from '@/config';
 import { useTokens } from '@/hooks/useTokens';
 import { useIntentsBalance } from '@/hooks/useIntentsBalance';
@@ -21,16 +13,28 @@ import { fireEvent } from '@/machine';
 import { guardStates } from '@/machine/guards';
 import { useUnsafeSnapshot } from '@/machine/snap';
 import type { Token } from '@/types/token';
+import { useSupportedChains } from '../../hooks/useSupportedChains';
+import { useIntentsAccountType } from '../../hooks';
+import { useExternalDefaultToken } from '../../hooks/useExternalDefaultToken';
+import { isNearAddress } from '../../utils/chains/isNearAddress';
+import { isEvmAddress } from '../../utils/chains/isEvmAddress';
+import { isSolanaAddress } from '../../utils/chains/isSolanaAddress';
+import { IntentsAccountType } from '../../types/config';
+import type { ListenerProps } from './types';
 
 export type Props = ListenerProps & {
   skipIntents?: boolean;
   target?: 'none' | 'same-asset';
 };
 
-const accountChainMap: Record<IntentsAccountType, Chains> = {
+// Passkey accounts have no wallet chain: they only hold intents balances.
+type WalletAccountType = Exclude<IntentsAccountType, 'webauthn'>;
+
+const accountChainMap: Record<WalletAccountType, Chains> = {
   sol: 'sol',
   evm: 'eth',
   near: 'near',
+  stellar: 'stellar',
 };
 
 export const useSelectedTokensEffect = ({
@@ -41,10 +45,14 @@ export const useSelectedTokensEffect = ({
   const { tokens } = useTokens();
   const { ctx, state } = useUnsafeSnapshot();
   const { intentBalances } = useIntentsBalance();
-  const { defaultSourceToken, defaultTargetToken } = useConfig();
   const { intentsAccountType } = useIntentsAccountType();
-  const { enableAccountAbstraction, chainsFilter } = useConfig();
   const { supportedChains } = useSupportedChains();
+  const {
+    chainsFilter,
+    defaultSourceToken,
+    defaultTargetToken,
+    enableAccountAbstraction,
+  } = useConfig();
 
   // Load default source and target tokens if they are not already set and we
   // are not specifying a default via the config.
@@ -54,8 +62,8 @@ export const useSelectedTokensEffect = ({
   const shouldLoadInternalDefaultTargetToken =
     !ctx.targetToken && !defaultTargetToken;
 
-  useExternalDefaultToken('source');
-  useExternalDefaultToken('target');
+  useExternalDefaultToken('source', { enabled: isEnabled });
+  useExternalDefaultToken('target', { enabled: isEnabled });
 
   const highestIntentsToken = getTokenWithHighBalance({
     tokens,
@@ -145,12 +153,16 @@ export const useSelectedTokensEffect = ({
               );
             }
 
-            tkn = tokens.find(
-              (t) =>
-                !t.isIntent &&
-                t.symbol === ctx.sourceToken?.symbol &&
-                t.blockchain === accountChainMap[intentsAccountType ?? 'evm'],
-            );
+            tkn =
+              intentsAccountType === 'webauthn'
+                ? undefined
+                : tokens.find(
+                    (t) =>
+                      !t.isIntent &&
+                      t.symbol === ctx.sourceToken?.symbol &&
+                      t.blockchain ===
+                        accountChainMap[intentsAccountType ?? 'evm'],
+                  );
           } else {
             tkn = tokens.find(
               (t) => t.isIntent && t.symbol === ctx.sourceToken?.symbol,
@@ -167,7 +179,7 @@ export const useSelectedTokensEffect = ({
   }, [ctx, sourceToken, targetToken, isEnabled, intentsAccountType]);
 
   const setTokenForIntentsAccountType = (
-    accountType: IntentsAccountType,
+    accountType: WalletAccountType,
     fallbackToken?: Token,
   ) => {
     const tkn =
@@ -200,25 +212,41 @@ export const useSelectedTokensEffect = ({
 
     const timer = setTimeout(() => {
       if (shouldLoadInternalDefaultSourceToken) {
-        // 1. Intents token if possible
-        if (!skipIntents && highestIntentsToken) {
+        // 1. Intents token if possible (and allowed as a source)
+        if (
+          !skipIntents &&
+          highestIntentsToken &&
+          (chainsFilter
+            ? chainsFilter.source.intents !== 'none'
+            : enableAccountAbstraction)
+        ) {
           fireEvent('tokenSelect', {
             variant: 'source',
             token: highestIntentsToken,
           });
           // 2. Wallet base token if intents not supported
-        } else if (supportedChains.length && intentsAccountType) {
+        } else if (
+          supportedChains.length &&
+          intentsAccountType &&
+          intentsAccountType !== 'webauthn'
+        ) {
           setTokenForIntentsAccountType(intentsAccountType, fallbackToken);
-          // 3. Select base token by detecting Solana wallet address
+          // 3. Passkey account: its `0x` ID must not pick an on-chain EVM token
+        } else if (intentsAccountType === 'webauthn') {
+          fireEvent('tokenSelect', {
+            variant: 'source',
+            token: fallbackToken,
+          });
+          // 4. Select base token by detecting Solana wallet address
         } else if (ctx.walletAddress && isSolanaAddress(ctx.walletAddress)) {
           setTokenForIntentsAccountType('sol', fallbackToken);
-          // 4. Select base token by detecting EVM wallet address
+          // 5. Select base token by detecting EVM wallet address
         } else if (ctx.walletAddress && isEvmAddress(ctx.walletAddress)) {
           setTokenForIntentsAccountType('evm', fallbackToken);
-          // 5. Select base token by detecting NEAR wallet address
+          // 6. Select base token by detecting NEAR wallet address
         } else if (ctx.walletAddress && isNearAddress(ctx.walletAddress)) {
           setTokenForIntentsAccountType('near', fallbackToken);
-          // 6. Fallback if intents is not supported and wallet is not connected
+          // 7. Fallback if intents is not supported and wallet is not connected
         } else {
           fireEvent('tokenSelect', {
             variant: 'source',

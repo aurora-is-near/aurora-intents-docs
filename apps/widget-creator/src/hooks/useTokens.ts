@@ -1,15 +1,16 @@
-import {
-  OneClickService,
-  TokenResponse,
-} from '@defuse-protocol/one-click-sdk-typescript';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import {
+  AURORA_BRIDGEABLE_ASSETS,
   CHAINS,
   Chains,
   SimpleToken,
+  TOKENS_DATA,
 } from '@aurora-is-near/intents-swap-widget';
-import { TOKENS_DATA } from '../config';
+
+import { getTokens } from '@/api/requests/getTokens';
+import { getWidgetApiKey } from '@/utils/get-widget-api-key';
+import { useCreator } from './useCreatorConfig';
 
 export type TokenType = {
   decimals: number;
@@ -44,11 +45,13 @@ const getTokenChain = (blockchain: string): Chains | null => {
 };
 
 export const useTokens = (): SimpleToken[] => {
-  const { data } = useQuery<TokenResponse[]>({
-    queryKey: ['tokens'],
-    queryFn: async (): Promise<TokenResponse[]> => {
-      return OneClickService.getTokens();
-    },
+  const { state } = useCreator();
+  const apiKey = getWidgetApiKey(state.apiKey);
+
+  // Same list the preview widget loads for this API key.
+  const { data } = useQuery({
+    queryKey: ['fee-service-tokens', apiKey],
+    queryFn: () => getTokens(apiKey),
   });
 
   if (!data || data.length === 0) {
@@ -75,7 +78,44 @@ export const useTokens = (): SimpleToken[] => {
     })
     .filter((token): token is SimpleToken => token !== null);
 
-  return tokens;
+  // The fee service does not return Aurora tokens, so we synthesise them from a
+  // hardcoded map (mirrors the widget's own useTokens).
+  const auroraTokens = AURORA_BRIDGEABLE_ASSETS.map(
+    (asset): SimpleToken | null => {
+      const upstream = data.find((token) => token.assetId === asset.assetId);
+
+      if (!upstream) {
+        return null;
+      }
+
+      return {
+        assetId: asset.assetId,
+        symbol: asset.symbol,
+        decimals: asset.decimals,
+        price: upstream.price,
+        blockchain: 'aurora',
+        icon: getTokenIcon(asset.symbol),
+        contractAddress: asset.evmAddress,
+      };
+    },
+  ).filter((token): token is SimpleToken => token !== null);
+
+  return [...tokens, ...auroraTokens];
+};
+
+// Chains the API key has at least one token on (the fee service hides
+// restricted ones, e.g. QTC, from keys not allowed them). Every chain is
+// offered until the list loads, so the pickers never come up empty.
+export const useAvailableChains = (): typeof CHAINS => {
+  const tokens = useTokens();
+
+  if (!tokens.length) {
+    return CHAINS;
+  }
+
+  const chainsWithTokens = new Set(tokens.map((token) => token.blockchain));
+
+  return CHAINS.filter((chain) => chainsWithTokens.has(chain.id));
 };
 
 export const useTokensGroupedBySymbol = (): TokenType[] => {
@@ -116,17 +156,4 @@ export const useTokensGroupedBySymbol = (): TokenType[] => {
   }, [tokens]);
 
   return Object.values(tokensWithIcons);
-};
-
-export const isTokenAvailable = (
-  token: TokenType,
-  selectedNetworks: string[],
-): boolean => {
-  if (!selectedNetworks || selectedNetworks.length === 0) {
-    return false;
-  }
-
-  return token.blockchains.some((blockchain) =>
-    selectedNetworks.includes(blockchain),
-  );
 };

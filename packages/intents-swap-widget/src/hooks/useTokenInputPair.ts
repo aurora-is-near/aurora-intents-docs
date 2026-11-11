@@ -1,11 +1,11 @@
 import { useState } from 'react';
 
-import { fireEvent } from '../machine';
-import { useUnsafeSnapshot } from '../machine/snap';
 import { notReachable } from '@/utils/notReachable';
 import { calculatePairAmount } from '@/utils/tokens/calculatePairAmount';
 import { formatHumanToBig } from '@/utils/formatters/formatHumanToBig';
 import type { Token } from '@/types/token';
+import { useUnsafeSnapshot } from '../machine/snap';
+import { fireEvent } from '../machine';
 
 export const useTokenInputPair = () => {
   const { ctx } = useUnsafeSnapshot();
@@ -64,7 +64,16 @@ export const useTokenInputPair = () => {
           token,
         });
 
-        if (!token || !ctx.targetToken) {
+        if (ctx.isDepositFromExternalWallet) {
+          // In external deposit mode sourceTokenAmount drives the FLEX_INPUT
+          // min-deposit path in useMakeQuote, so clear it on token change to
+          // let getMinDepositTokenAmount recompute the correct floor for the
+          // newly selected token.
+          fireEvent('tokenSetAmount', {
+            variant: 'source',
+            amount: '',
+          });
+        } else if (!token || !ctx.targetToken) {
           fireEvent('tokenSetAmount', {
             variant: 'source',
             amount: '',

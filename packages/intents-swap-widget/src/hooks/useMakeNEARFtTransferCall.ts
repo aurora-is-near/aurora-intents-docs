@@ -1,15 +1,25 @@
-import type { NearWalletBase as NearWallet } from '@hot-labs/near-connect/build/types/wallet';
-import type { Action } from '@hot-labs/near-connect/build/types/transactions';
-import { FT_DEPOSIT_GAS, FT_TRANSFER_GAS } from '../utils/near/config';
-import { getNearNep141StorageBalance } from '../utils/near/getNearNep141StorageBalance';
-import { getNearNep141MinStorageBalance } from '../utils/near/getNearNep141MinStorageBalance';
 import { logger } from '@/logger';
 import { TransferError } from '@/errors';
 import { isErrorLikeObject } from '@/utils/isErrorLikeObject';
 import { isUserDeniedSigning } from '@/utils/checkers/isUserDeniedSigning';
 import { useComputedSnapshot, useUnsafeSnapshot } from '@/machine/snap';
-import { NATIVE_NEAR_DUMB_ASSET_ID, WNEAR_ASSET_ID } from '@/constants/tokens';
+import {
+  NATIVE_NEAR_DUMB_ASSET_ID,
+  WNEAR_ASSET_ID,
+  WNEAR_CONTRACT_ID,
+} from '@/constants/tokens';
 import type { TransferResult } from '@/types/transfer';
+import type {
+  NearAction as Action,
+  NearWalletBase as NearWallet,
+} from '@/types/near';
+import { getNearNep141MinStorageBalance } from '../utils/near/getNearNep141MinStorageBalance';
+import { getNearNep141StorageBalance } from '../utils/near/getNearNep141StorageBalance';
+import {
+  FT_DEPOSIT_GAS,
+  FT_TRANSFER_GAS,
+  WNEAR_STORAGE_DEPOSIT,
+} from '../utils/near/config';
 
 export function useMakeNEARFtTransferCall(
   nearWallet: null | undefined | (() => NearWallet),
@@ -17,7 +27,10 @@ export function useMakeNEARFtTransferCall(
   const { ctx } = useUnsafeSnapshot();
   const { isNativeNearDeposit } = useComputedSnapshot();
   const sourceTokenAddress = ctx.sourceToken?.contractAddress;
-  const amount = ctx.quote?.amountIn ?? ctx.sourceTokenAmount;
+  const amount =
+    ctx.quote && ctx.quote.type !== 'QUOTE_DEPOSIT_ANY_AMOUNT'
+      ? ctx.quote.amountIn
+      : ctx.sourceTokenAmount;
 
   const NEARFtTransferCall = async (
     recipient: string,
@@ -51,6 +64,13 @@ export function useMakeNEARFtTransferCall(
       throw new TransferError({
         code: 'TRANSFER_INVALID_INITIAL',
         meta: { message: 'No amount to transfer.' },
+      });
+    }
+
+    if (!ctx.walletAddress) {
+      throw new TransferError({
+        code: 'TRANSFER_INVALID_INITIAL',
+        meta: { message: 'No connected wallet address.' },
       });
     }
 
@@ -95,6 +115,28 @@ export function useMakeNEARFtTransferCall(
     const tokenContractActions: Action[] = [];
 
     if (ctx.targetToken && isNativeNearDeposit) {
+      const wrappedNearBalance = await getNearNep141StorageBalance({
+        contractId: WNEAR_CONTRACT_ID,
+        accountId: ctx.walletAddress,
+      });
+
+      let amountWithoutStorageDeposit = amount;
+
+      if (!wrappedNearBalance || wrappedNearBalance === 0n) {
+        const spendableAmount = BigInt(amount) - WNEAR_STORAGE_DEPOSIT;
+
+        if (spendableAmount <= 0n) {
+          throw new TransferError({
+            code: 'TRANSFER_INVALID_INITIAL',
+            meta: {
+              message: 'Amount must exceed the initial wNEAR storage deposit.',
+            },
+          });
+        }
+
+        amountWithoutStorageDeposit = spendableAmount.toString();
+      }
+
       try {
         tokenContractActions.push({
           type: 'FunctionCall',
@@ -113,7 +155,7 @@ export function useMakeNEARFtTransferCall(
             deposit: '1', // 1 yocto required by NEP-141
             gas: FT_TRANSFER_GAS,
             args: {
-              amount,
+              amount: amountWithoutStorageDeposit,
               receiver_id: recipient,
               msg: msgRecipient ?? '',
             },

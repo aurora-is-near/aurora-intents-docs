@@ -4,7 +4,6 @@ import {
   Button,
   SuccessScreen,
   Widget,
-  WidgetConfigProvider,
   WidgetContainer,
 } from '@aurora-is-near/intents-swap-widget';
 import { WidgetConfigProvider as StandaloneWidgetConfigProvider } from '@aurora-is-near/intents-swap-widget-standalone';
@@ -13,6 +12,8 @@ import { useCreator } from '../../hooks/useCreatorConfig';
 import '@aurora-is-near/intents-swap-widget/styles.css';
 import { useWidgetConfig } from '../../hooks/useWidgetConfig';
 import { useThemeConfig } from '../../hooks/useThemeConfig';
+import { APP_ENV } from '../../utils/environment';
+import { DappWalletBridge } from './DappWalletBridge';
 
 const ALCHEMY_API_KEY = 'CiIIxly0Hi8oQYcQvzgsI';
 
@@ -55,7 +56,7 @@ export function WidgetContent() {
     return (
       <WidgetContainer>
         <SuccessScreen
-          title="Swap successful"
+          transactionType="SWAP"
           hash={successfulTransactionDetails.hash}
           transactionLink={successfulTransactionDetails.transactionLink}
           message="Your swap has been successfully completed!"
@@ -75,16 +76,17 @@ export function WidgetContent() {
   const Provider =
     state.userAuthMode === 'standalone'
       ? StandaloneWidgetConfigProvider
-      : WidgetConfigProvider;
+      : DappWalletBridge;
 
   return (
     <Provider
       config={{
         ...widgetConfig,
         alchemyApiKey: ALCHEMY_API_KEY,
+        environment: APP_ENV,
       }}
       theme={themeConfig}>
-      <Widget />
+      <Widget defaultMode={state.widgetMode === 'deposit' ? 'topup' : 'swap'} />
       {exampleBanner && (
         <div className="flex justify-center">
           <Banner

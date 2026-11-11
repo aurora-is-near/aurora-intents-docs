@@ -1,9 +1,16 @@
 import once from 'lodash.once';
 import { useEffect } from 'react';
 
+import {
+  registerGlobalContextSubscription,
+  registerGlobalStateSubscription,
+} from '@/machine/subscriptions';
+import { registerEvents } from '@/machine/events';
+import { logger } from '@/logger';
 import { useBalancesUpdateEffect } from './useBalancesUpdateEffect';
 import { useSetTokenBalanceEffect } from './useSetTokenBalanceEffect';
 import { useSetTokenIntentsTargetEffect } from './useSetTokenIntentsTargetEffect';
+import { useSyncFromConfigEffect } from './useSyncFromConfigEffect';
 import { useWalletConnEffect } from './useWalletConnEffect';
 import {
   type Props as PropsMakeQuote,
@@ -17,12 +24,6 @@ import {
   type Props as PropsAlchemyBalances,
   useAlchemyBalanceEffect,
 } from './useAlchemyBalanceEffect';
-import {
-  registerGlobalContextSubscription,
-  registerGlobalStateSubscription,
-} from '@/machine/subscriptions';
-import { registerEvents } from '@/machine/events';
-import { logger } from '@/logger';
 
 type EffectMakeQuote = ['makeQuote', Omit<PropsMakeQuote, 'isEnabled'>];
 
@@ -37,6 +38,7 @@ type EffectDefaultTokens = [
 ];
 
 type Effect =
+  | 'syncConfig'
   | 'updateBalances'
   | 'checkWalletConnection'
   | 'setSourceTokenBalance'
@@ -81,6 +83,8 @@ export const useStoreSideEffects = ({ listenTo, debug = false }: Args) => {
       Array.isArray(item) && item[0] === 'makeQuote',
   );
 
+  useSyncFromConfigEffect({ isEnabled: listenTo.includes('syncConfig') });
+
   useAlchemyBalanceEffect({
     isEnabled: !!alchemyBalancesListener,
     alchemyApiKey: alchemyBalancesListener?.[1].alchemyApiKey,
@@ -94,7 +98,6 @@ export const useStoreSideEffects = ({ listenTo, debug = false }: Args) => {
 
   useMakeQuoteEffect({
     isEnabled: !!makeQuoteListener,
-    message: makeQuoteListener?.[1].message,
     type: makeQuoteListener?.[1].type,
     refetchQuoteInterval: makeQuoteListener?.[1].refetchQuoteInterval,
   });

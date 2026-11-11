@@ -1,4 +1,4 @@
-import { Chains } from '../../types';
+import { Chains, IntentsAccountType } from '../../types';
 import { isEvmAddress } from './isEvmAddress';
 import { isNearAddress } from './isNearAddress';
 import { isSolanaAddress } from './isSolanaAddress';
@@ -11,9 +11,20 @@ import { isLtcAddress } from './isLtcAddress';
 import { isDogeAddress } from './isDogeAddress';
 import { isZecAddress } from './isZecAddress';
 import { isSuiAddress } from './isSuiAddress';
+import { isStellarAddress } from './isStellarAddress';
+import { isAleoAddress } from './isAleoAddress';
+import { isStarknetAddress } from './isStarknetAddress';
+import { isBchAddress } from './isBchAddress';
+import { isDashAddress } from './isDashAddress';
 import { EVM_CHAINS } from '../../constants';
 
 const getSupportedChainsFromAddress = (address: string): readonly Chains[] => {
+  // Check the unambiguous 0x prefix before NEAR's permissive named-account
+  // grammar, which also accepts lowercase 0x strings as valid account IDs.
+  if (isEvmAddress(address)) {
+    return EVM_CHAINS;
+  }
+
   if (isSolanaAddress(address)) {
     return ['sol'];
   }
@@ -58,8 +69,24 @@ const getSupportedChainsFromAddress = (address: string): readonly Chains[] => {
     return ['sui'];
   }
 
-  if (isEvmAddress(address)) {
-    return EVM_CHAINS;
+  if (isStellarAddress(address)) {
+    return ['stellar'];
+  }
+
+  if (isAleoAddress(address)) {
+    return ['aleo'];
+  }
+
+  if (isStarknetAddress(address)) {
+    return ['starknet'];
+  }
+
+  if (isDashAddress(address)) {
+    return ['dash'];
+  }
+
+  if (isBchAddress(address)) {
+    return ['bch'];
   }
 
   // Default to EVM chains if unable to determine based on address format.
@@ -69,10 +96,17 @@ const getSupportedChainsFromAddress = (address: string): readonly Chains[] => {
 export const getSupportedChains = ({
   walletAddress,
   walletSupportedChains,
+  intentsAccountType,
 }: {
   walletAddress?: string;
   walletSupportedChains?: readonly Chains[];
-}) => {
+  intentsAccountType?: IntentsAccountType;
+}): readonly Chains[] => {
+  // A passkey account holds intents balances only: no wallet on any chain.
+  if (intentsAccountType === 'webauthn') {
+    return [];
+  }
+
   if (walletSupportedChains?.length) {
     return walletSupportedChains;
   }

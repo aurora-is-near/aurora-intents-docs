@@ -1,9 +1,10 @@
+import { isEvmChain } from '@/utils/evm/isEvmChain';
+import { EVM_CHAIN_BASE_TOKENS } from '@/constants/chains';
+import { getTokenBalanceKey } from '@/utils/intents/getTokenBalanceKey';
+import type { Token, TokenBalances } from '@/types/token';
 import { CHAINS_MAP } from './types';
 import { revertAlchemyChainsMap } from './utils';
 import type { AlchemyBalanceItem } from './types';
-import { isEvmChain } from '@/utils/evm/isEvmChain';
-import { EVM_CHAIN_BASE_TOKENS } from '@/constants/chains';
-import type { Token, TokenBalances } from '@/types/token';
 
 export const parse = (
   tokensList: Token[],
@@ -46,7 +47,7 @@ export const parse = (
       const bigintStr = BigInt(bal.tokenBalance).toString();
 
       if (bigintStr !== '0') {
-        result[match.assetId] = bigintStr;
+        result[getTokenBalanceKey(match)] = bigintStr;
       }
     }
   });

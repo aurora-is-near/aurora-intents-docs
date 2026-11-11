@@ -1,15 +1,8 @@
 import axios from 'axios';
 
-import { EVM_CHAIN_IDS_MAP } from '../constants/chains';
-import { isEvmBaseToken, isEvmChain } from '../utils';
-import { useMakeEvmTransfer } from './useMakeEvmTransfer';
-import { isEvmAddress } from '../utils/chains/isEvmAddress';
-import { Providers } from '../types/providers';
-import { useMakeSolanaTransfer } from './useMakeSolanaTransfer';
-import { useConfig } from '../config';
-import { isSolanaAddress } from '../utils/chains/isSolanaAddress';
 import { logger } from '@/logger';
 import { TransferError } from '@/errors';
+import { feeServiceApi } from '@/network';
 import { useUnsafeSnapshot } from '@/machine/snap';
 import { NATIVE_NEAR_DUMB_ASSET_ID } from '@/constants/tokens';
 import { isErrorLikeObject } from '@/utils/isErrorLikeObject';
@@ -19,38 +12,141 @@ import type {
   MakeTransferArgs,
   TransferResult,
 } from '@/types/transfer';
+import { EVM_CHAIN_IDS_MAP } from '../constants/chains';
+import { getTransactionLink, isEvmBaseToken, isEvmChain } from '../utils';
+import { useMakeNearTransfer } from './useMakeNearTransfer';
+import { Providers } from '../types/providers';
+import { Plugins } from '../types/connectors';
+import { getSupportedProviderType } from '../utils/chains/getSupportedProviderType';
+import { useConfig } from '../config';
 
 type QuoteTransferArgs = {
   makeTransfer?: MakeTransfer;
   providers?: Providers;
+  plugins?: Plugins;
 };
+
+function assertChainSupport(
+  property: unknown,
+  message: string,
+): asserts property {
+  if (!property) {
+    throw new TransferError({
+      code: 'TRANSFER_INVALID_INITIAL',
+      meta: { message },
+    });
+  }
+}
 
 export const useMakeQuoteTransfer = ({
   makeTransfer,
   providers,
+  plugins,
 }: QuoteTransferArgs) => {
   const { ctx } = useUnsafeSnapshot();
-  const { alchemyApiKey } = useConfig();
-  const { make: makeEvmTransfer } = useMakeEvmTransfer({
-    provider: providers?.evm,
-  });
+  const { alchemyApiKey, apiKey } = useConfig();
 
-  const { make: makeSolanaTransfer } = useMakeSolanaTransfer({
-    provider: providers?.sol,
-    alchemyApiKey,
+  const { make: makeNearTransfer } = useMakeNearTransfer({
+    provider: providers?.near,
+    accountId: ctx.walletAddress,
   });
 
   const getTransferFunction = (depositAddress: string) => {
+    // For Aurora sources, the 1Click deposit address is a NEAR account
+    // (intents.near sub-account) but the actual transfer happens on the Aurora
+    // EVM side via the exitToNear precompile — so the EVM plugin must handle
+    // it regardless of the deposit address shape.
+    const providerType =
+      ctx.sourceToken?.blockchain === 'aurora'
+        ? 'evm'
+        : getSupportedProviderType(depositAddress);
+
     if (makeTransfer) {
       return makeTransfer;
     }
 
-    if (isEvmAddress(depositAddress)) {
-      return makeEvmTransfer;
+    if (providerType === 'evm') {
+      const evmPlugin = plugins?.evm;
+
+      assertChainSupport(
+        evmPlugin,
+        'EVM transfers are not supported. Add the EVM plugin from @aurora-is-near/intents-swap-widget-evm via the `plugins` configuration property.',
+      );
+
+      const provider = providers?.evm;
+
+      assertChainSupport(
+        provider,
+        'EVM transfers are not supported. Add an EVM provider via the `providers` configuration property.',
+      );
+
+      return (args: MakeTransferArgs) =>
+        evmPlugin.makeTransfer(args, { provider });
     }
 
-    if (isSolanaAddress(depositAddress)) {
-      return makeSolanaTransfer;
+    if (providerType === 'sol') {
+      const solPlugin = plugins?.sol;
+      const provider = providers?.sol;
+
+      assertChainSupport(
+        solPlugin,
+        'Solana transfers are not supported. Add the Solana plugin from @aurora-is-near/intents-swap-widget-solana via the `plugins` configuration property.',
+      );
+
+      assertChainSupport(
+        provider,
+        'Solana transfers are not supported. Add a Solana provider via the `providers` configuration property.',
+      );
+
+      return (args: MakeTransferArgs) =>
+        solPlugin.makeTransfer(args, { provider, alchemyApiKey });
+    }
+
+    if (providerType === 'near') {
+      return makeNearTransfer;
+    }
+
+    if (providerType === 'stellar') {
+      const stellarPlugin = plugins?.stellar;
+      const provider = providers?.stellar;
+
+      assertChainSupport(
+        stellarPlugin,
+        'Stellar transfers are not supported. Add the Stellar plugin from @aurora-is-near/intents-swap-widget-stellar via the `plugins` configuration property.',
+      );
+
+      assertChainSupport(
+        provider,
+        'Stellar transfers are not supported. Add a Stellar provider via the `providers` configuration property.',
+      );
+
+      return (args: MakeTransferArgs) => {
+        if (!ctx.quote) {
+          throw new TransferError({
+            code: 'TRANSFER_INVALID_INITIAL',
+            meta: { message: 'Quote is required for a Stellar transfer.' },
+          });
+        }
+
+        // not reachable here just for type safety
+        if (ctx.quote.type === 'QUOTE_DRY_WITH_AMOUNT') {
+          return;
+        }
+
+        if (!ctx.quote.depositMemo) {
+          throw new TransferError({
+            code: 'TRANSFER_INVALID_INITIAL',
+            meta: {
+              message: 'Quote has no deposit memo for Stellar transfer.',
+            },
+          });
+        }
+
+        return stellarPlugin.makeTransfer(
+          { ...args, memo: ctx.quote.depositMemo },
+          { provider },
+        );
+      };
     }
 
     throw new TransferError({
@@ -84,6 +180,13 @@ export const useMakeQuoteTransfer = ({
       throw new TransferError({
         code: 'TRANSFER_INVALID_INITIAL',
         meta: { message: msg },
+      });
+    }
+
+    if (ctx.quote.type === 'QUOTE_DEPOSIT_ANY_AMOUNT') {
+      throw new TransferError({
+        code: 'TRANSFER_INVALID_INITIAL',
+        meta: { message: 'Quote has no source amount' },
       });
     }
 
@@ -124,10 +227,25 @@ export const useMakeQuoteTransfer = ({
         });
       }
 
+      // Proactively notify 1Click of the deposit so its indexer doesn't have
+      // to discover the tx on its own. This speeds up status resolution.
+      // Fails with 500 for confidential intents.
+      if (ctx.confidentialMode !== 'confidential' && apiKey) {
+        void feeServiceApi
+          .post(`/api/deposit/submit/${apiKey}`, {
+            txHash: depositResult.hash,
+            depositAddress: ctx.quote.depositAddress,
+          })
+          .catch((e) => {
+            logger.warn('Failed to submit deposit tx through fee service', e);
+          });
+      }
+
       return {
         hash: depositResult.hash,
-        transactionLink: depositResult.transactionLink,
+        transactionLink: getTransactionLink(ctx.quote.depositAddress),
         intent: undefined,
+        isOneClickDeposit: true,
       };
     } catch (error: unknown) {
       logger.error('[TRANSFER ERROR]', error, { error });
@@ -154,18 +272,15 @@ export const useMakeQuoteTransfer = ({
         throw new TransferError({
           code: 'NO_QUOTE_FOUND',
         });
-      } else if (error instanceof Error) {
-        if (!userCancelledTx) {
-          throw new TransferError({
-            code: 'QUOTE_ERROR',
-            meta: { message: error.message },
-          });
-        }
+      } else if (isErrorLikeObject(error)) {
+        throw new TransferError({
+          code: 'QUOTE_ERROR',
+          meta: { message: error.message },
+        });
       }
 
       throw new TransferError({
-        code: 'QUOTE_ERROR',
-        meta: { message: 'Unknown quote transfer error' },
+        code: 'TRANSFER_REJECTED_UNKNOWN',
       });
     }
   };

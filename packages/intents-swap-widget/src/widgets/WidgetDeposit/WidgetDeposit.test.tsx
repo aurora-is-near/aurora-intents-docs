@@ -3,8 +3,9 @@
 // import mocks first
 import {
   mockAlchemyApi,
-  mockOneClickApi,
+  mockFeeServiceApi,
 } from '../../tests/mock-axios-requests';
+import '../../tests/mock-qr-code';
 import { mockEvmWallet } from '../../tests/mock-evm-wallet';
 import { mockMakeTransfer } from '../../tests/mock-make-transfer';
 import { mockAlchemyResponse } from '../../tests/mock-alchemy-response';
@@ -12,7 +13,6 @@ import { mockGetIntentsBalances } from '../../tests/mock-get-intents-balances';
 import { mockConnectedWalletAddress } from '../../tests/mock-connected-wallet-address';
 import { mockOneClickQuote } from '../../tests/mock-one-click-quote';
 import { mockedLocalStorage } from '../../tests/mock-localstorage';
-import { mockOneClickSDK } from '../../tests/mock-one-click-sdk';
 
 import { setup } from '../../tests/setup';
 import { CtxDebugger } from '../../tests/ctx';
@@ -33,13 +33,20 @@ jest.useFakeTimers();
 
 const WidgetDepositSetup = () => {
   const config: Partial<WidgetConfig> = {
-    appName: 'Test',
-    appIcon: '/test-icon.png',
+    apiKey: 'test-api-key',
     enableAccountAbstraction: true,
     alchemyApiKey: 'test-alchemy-api-key',
     connectedWallets: { default: mockConnectedWalletAddress('evm') },
     walletSupportedChains: EVM_CHAINS,
     providers: { evm: mockEvmWallet },
+    plugins: {
+      evm: {
+        makeTransfer: jest.fn(async () => ({
+          hash: '0xMockHash',
+          transactionLink: '',
+        })),
+      },
+    },
   };
 
   return (
@@ -102,9 +109,10 @@ describe('Deposit', () => {
       recipient: mockConnectedWalletAddress('evm'),
     });
 
-    mockOneClickSDK.getQuote.mockResolvedValue(quoteMock);
-    mockOneClickSDK.getTokens.mockResolvedValue([sourceToken, targetToken]);
-    mockOneClickApi.post.mockResolvedValue({ data: quoteMock });
+    mockFeeServiceApi.post.mockResolvedValue({ data: quoteMock });
+    mockFeeServiceApi.get.mockResolvedValue({
+      data: { asset_stats: [], tokens: [sourceToken, targetToken] },
+    });
   });
 
   afterEach(() => {
@@ -113,40 +121,27 @@ describe('Deposit', () => {
   });
 
   it('renders deposit widget layout', async () => {
-    const { screen, within } = setup(<WidgetDepositSetup />);
+    const { screen, within, user } = setup(<WidgetDepositSetup />);
 
-    // 1. Input initial state
-    const tokenInput = await screen.findByLabelText('Sell');
-    const inputAmount = within(tokenInput).getByPlaceholderText('0');
-    expect(inputAmount).toBeInTheDocument();
-    expect(inputAmount).not.toHaveFocus();
-    expect(inputAmount).toHaveValue('');
-    expect(inputAmount).toBeEnabled();
+    // 1. Input initial state (no token: card shows static "0", not an amount field)
+    const tokenInput = await screen.findByLabelText('Deposit');
+    expect(within(tokenInput).getByText('0')).toBeInTheDocument();
+    expect(within(tokenInput).getByText('Select token')).toBeInTheDocument();
+    expect(
+      within(tokenInput).queryByPlaceholderText('0'),
+    ).not.toBeInTheDocument();
 
-    // 2. Tokens are fetched
-    expect(mockOneClickSDK.getTokens).toHaveBeenCalled();
+    // 2. Tokens are fetched via fee service (apiKey is set in test config)
+    expect(mockFeeServiceApi.get).toHaveBeenCalled();
 
-    // 3. Deposit selector
-    const depositMethodLabel = screen.getByText('Select deposit method');
+    // 3. External deposit: steps appear after toggle (token must be chosen before a quote / QR flow)
+    const depositMethodLabel = screen.getByText('Deposit from external wallet');
     expect(depositMethodLabel).toBeInTheDocument();
 
-    const myWalletBtn = screen.getByRole('button', { name: 'My wallet' });
-    expect(myWalletBtn).toHaveAttribute('data-active');
-    expect(myWalletBtn).toBeInTheDocument();
-    expect(myWalletBtn).toBeEnabled();
+    const toggleContainer = depositMethodLabel.parentElement;
+    expect(toggleContainer).toBeInTheDocument();
 
-    const qrCodeBtn = screen.getByRole('button', { name: 'QR / Address' });
-    expect(qrCodeBtn).not.toHaveAttribute('data-active');
-    expect(qrCodeBtn).toBeInTheDocument();
-    expect(qrCodeBtn).toBeEnabled();
-
-    // 4. Submit button
-    const submitBtn = screen.getByRole('button', { name: 'Enter amount' });
-    expect(submitBtn).toBeInTheDocument();
-    expect(submitBtn).toBeDisabled();
-
-    // 5. Selected asset
-    const selectedAsset = within(tokenInput).getByRole('button');
-    expect(selectedAsset).toHaveTextContent('ETH');
+    const qrToggle = within(toggleContainer!).getByRole('switch');
+    expect(qrToggle).not.toBeChecked();
   });
 });

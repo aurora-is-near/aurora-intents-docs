@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import type { ComponentProps } from 'react';
 
-import { useSupportedChains } from '../../hooks/useSupportedChains';
 import type { Input } from '@/components/Input';
 import type { Banner } from '@/components/Banner';
 
@@ -10,6 +9,8 @@ import { useUnsafeSnapshot } from '@/machine/snap';
 import { useTypedTranslation } from '@/localisation';
 import { getIntentsAccountId } from '@/utils/intents/getIntentsAccountId';
 import { CHAINS_LIST, EVM_CHAINS } from '@/constants/chains';
+
+import { useSupportedChains } from '../../hooks/useSupportedChains';
 
 type Notification =
   | {
@@ -24,7 +25,7 @@ export const useNotification = (
 ): Notification => {
   const { t } = useTypedTranslation();
   const { ctx } = useUnsafeSnapshot();
-  const { appName, sendAddress } = useConfig();
+  const { sendAddress } = useConfig();
   const { supportedChains } = useSupportedChains();
 
   return useMemo(() => {
@@ -60,28 +61,28 @@ export const useNotification = (
         variant: 'error',
         state: 'error',
         message: t('wallet.recipient.error.invalidAddress', {
-          defaultValue: 'Invalid address. Use one on {{network}} network.',
+          defaultValue: 'Use address on {{network}} network',
           network: CHAINS_LIST[ctx.targetToken.blockchain]?.label ?? 'selected',
         }),
       };
     }
 
     if (
-      ctx.state === 'initial_wallet' &&
+      (ctx.state === 'initial_wallet' || ctx.state === 'initial_dry') &&
       ctx.error?.code === 'SEND_ADDRESS_IS_NOT_FOUND'
     ) {
       return {
         variant: 'error',
         state: 'error',
         message: t('wallet.recipient.error.sendAddressNotFound', {
-          defaultValue: 'This {{chain}} account does not exist',
+          defaultValue: 'Account does not exist on {{chain}}',
           chain: ctx.error.meta.chain.toUpperCase(),
         }),
       };
     }
 
     if (
-      ctx.state === 'initial_wallet' &&
+      (ctx.state === 'initial_wallet' || ctx.state === 'initial_dry') &&
       ctx.error?.code === 'SEND_ADDRESS_IS_INVALID'
     ) {
       return {
@@ -108,8 +109,7 @@ export const useNotification = (
         variant: 'warn',
         state: 'default',
         message: t('wallet.recipient.warn.compatibleNetwork', {
-          defaultValue:
-            'Make sure the address is on the {{chainLabel}} compatible network',
+          defaultValue: 'Verify address on {{chainLabel}} network',
           chainLabel,
         }),
       };
@@ -120,14 +120,14 @@ export const useNotification = (
         variant: 'warn',
         state: 'default',
         message: t('wallet.recipient.warn.compatibleNetwork', {
-          defaultValue:
-            'Make sure the address is on the {{chainLabel}} compatible network',
+          defaultValue: 'Verify address on {{chainLabel}} network',
           chainLabel,
         }),
       };
     }
 
     if (
+      ctx.walletAddress &&
       ctx.walletAddress === ctx.sendAddress &&
       supportedChains.includes(ctx.targetToken.blockchain)
     ) {
@@ -135,8 +135,7 @@ export const useNotification = (
         variant: 'success',
         state: 'default',
         message: t('wallet.recipient.message.networkVerified', {
-          defaultValue:
-            'Address verified for {{chainLabel}} compatible network',
+          defaultValue: 'Address verified for {{chainLabel}} network',
           chainLabel,
         }),
       };
@@ -148,7 +147,7 @@ export const useNotification = (
         state: 'error',
         message: t(
           'wallet.recipient.message.receiveFunds',
-          'Please enter wallet address to receive funds',
+          'Enter wallet address to receive funds',
         ),
       };
     }
@@ -166,10 +165,9 @@ export const useNotification = (
         variant: 'success',
         state: 'default',
         message: t('wallet.recipient.message.receiveFunds', {
-          defaultValue: 'You will receive funds on your {{appName}} account',
-          appName,
+          defaultValue: 'Funds land on your Intents account',
         }),
       };
     }
-  }, [ctx, userError, supportedChains]);
+  }, [ctx, sendAddress, userError, supportedChains]);
 };

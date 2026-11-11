@@ -25,13 +25,19 @@ import {
   MakeTransferArgs,
   SimpleToken,
   SuccessScreen,
-  useMakeEvmTransfer,
-  useMakeSolanaTransfer,
   WidgetConfig,
   WidgetConfigProvider,
   WidgetContainer,
   WidgetSwap,
 } from '@aurora-is-near/intents-swap-widget';
+import {
+  evm,
+  makeTransfer as makeEvmTransfer,
+} from '@aurora-is-near/intents-swap-widget-evm';
+import {
+  makeTransfer as makeSolanaTransfer,
+  sol,
+} from '@aurora-is-near/intents-swap-widget-solana';
 import { formatBigToHuman } from '@aurora-is-near/intents-swap-widget/utils';
 import clsx from 'clsx';
 import { useAppKitWallet } from './hooks/useAppKitWallet';
@@ -430,15 +436,6 @@ export const Page = () => {
   const oneClickQuote = useRef<OneClickQuote>(null);
   const swapStatus = useRef<SwapStatusMap>(DEFAULT_SWAP_STATUS_MAP);
 
-  const { make: makeEvmTransfer } = useMakeEvmTransfer({
-    provider: providers.evm,
-  });
-
-  const { make: makeSolanaTransfer } = useMakeSolanaTransfer({
-    provider: providers?.sol,
-    alchemyApiKey: ALCHEMY_API_KEY,
-  });
-
   const [isTokensModalOpen, setIsTokensModalOpen] = useState(false);
   const [makeTransferArgs, setMakeTransferArgs] =
     useState<MakeTransferArgs | null>(null);
@@ -492,9 +489,12 @@ export const Page = () => {
 
     try {
       if (args.chain === 'sol') {
-        await makeSolanaTransfer(args);
+        await makeSolanaTransfer(args, {
+          provider: providers.sol,
+          alchemyApiKey: ALCHEMY_API_KEY,
+        });
       } else {
-        await makeEvmTransfer(args);
+        await makeEvmTransfer(args, { provider: providers.evm });
       }
 
       await waitForOneClickSettlement(args.address);
@@ -829,7 +829,7 @@ export const Page = () => {
           </Button>
         }>
         <SuccessScreen
-          title="Swap successful"
+          transactionType="SWAP"
           message="Your swap has been successfully completed, and the funds are now available in TON wallet."
           showTargetToken={false}
           hash={successfulTransactionDetails.hash}
@@ -854,7 +854,6 @@ export const Page = () => {
   return (
     <WidgetConfigProvider
       config={{
-        appName: 'Ton Intents',
         allowedTargetChainsList: ['ton'],
         hideSendAddress: true,
         connectedWallets: {
@@ -878,6 +877,7 @@ export const Page = () => {
         },
         lockSwapDirection: true,
         providers,
+        plugins: { evm, sol },
       }}
       localisation={{
         'submit.active.swap': 'Swap now',

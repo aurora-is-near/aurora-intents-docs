@@ -1,9 +1,10 @@
 import { memo, useEffect, useRef } from 'react';
 
-import { useTokenBalanceRpc } from './useTokenBalanceRpc';
-import { WalletAddresses } from '../../types';
 import type { Token, TokenBalances } from '@/types/token';
 import type { ChainRpcUrls } from '@/types/chain';
+import { getTokenBalanceKey } from '@/utils/intents/getTokenBalanceKey';
+import { useTokenBalanceRpc } from './useTokenBalanceRpc';
+import { WalletAddresses } from '../../types';
 
 type Props = {
   token: Token;
@@ -13,16 +14,15 @@ type Props = {
 };
 
 const TokenBalanceZeroLoader = ({
-  rpcs,
   token,
   onBalancesLoaded,
-}: Omit<Props, 'connectedWallets'>) => {
+}: Pick<Props, 'token' | 'onBalancesLoaded'>) => {
   useEffect(() => {
-    if (token.isIntent || !Object.keys(rpcs).includes(token.blockchain)) {
+    if (token.isIntent) {
       return;
     }
 
-    onBalancesLoaded({ [token.assetId]: '0' });
+    onBalancesLoaded({ [getTokenBalanceKey(token)]: '0' });
     // eslint-disable-next-line
   }, [token.assetId]);
 
@@ -31,7 +31,11 @@ const TokenBalanceZeroLoader = ({
 
 const TokenBalanceBaseLoader = memo(
   ({ rpcs, token, connectedWallets, onBalancesLoaded }: Props) => {
-    const { data: balance } = useTokenBalanceRpc({
+    const {
+      data: balance,
+      isError,
+      isFetched,
+    } = useTokenBalanceRpc({
       rpcs,
       token,
       connectedWallets,
@@ -40,25 +44,29 @@ const TokenBalanceBaseLoader = memo(
     const lastSent = useRef<string | null>(null);
 
     useEffect(() => {
-      if (token.isIntent || balance == null) {
+      if (token.isIntent || (balance == null && !isError && !isFetched)) {
         return;
       }
 
+      // A missing result or an exhausted query should settle the UI instead of
+      // leaving the token balance skeleton visible forever.
+      const settledBalance = balance ?? '0';
+
       // A unique key to avoid firing onBalancesLoaded with duplicate balances
-      const key = `${token.assetId}:${balance}`;
+      const key = `${getTokenBalanceKey(token)}:${settledBalance}`;
 
       if (lastSent.current === key) {
         return;
       }
 
       lastSent.current = key;
-      onBalancesLoaded({ [token.assetId]: balance });
-    }, [token, balance, onBalancesLoaded]);
+      onBalancesLoaded({ [getTokenBalanceKey(token)]: settledBalance });
+    }, [token, balance, isError, isFetched, onBalancesLoaded]);
 
     return null;
   },
   (prev, next) =>
-    prev.token.assetId === next.token.assetId &&
+    getTokenBalanceKey(prev.token) === getTokenBalanceKey(next.token) &&
     prev.connectedWallets === next.connectedWallets &&
     prev.onBalancesLoaded === next.onBalancesLoaded,
 );

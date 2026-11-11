@@ -1,29 +1,48 @@
-import { useMemo, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { snakeCase } from 'change-case';
-import {
+import { QuoteRequest } from '@defuse-protocol/one-click-sdk-typescript';
+import { AxiosError, AxiosResponse, CanceledError } from 'axios';
+import type {
   Quote as OneClickQuote,
-  QuoteRequest,
   QuoteResponse,
 } from '@defuse-protocol/one-click-sdk-typescript';
-import { AxiosError, AxiosResponse, CanceledError } from 'axios';
 
-import { Quote } from '../types';
-import { useIntentsAccountType } from './useIntentsAccountType';
-import { useSupportedChains } from './useSupportedChains';
 import { logger } from '@/logger';
 import { useConfig } from '@/config';
 import { QuoteError } from '@/errors';
-import { oneClickApi } from '@/network';
+import { feeServiceApi } from '@/network';
 import { guardStates } from '@/machine/guards';
-import { useUnsafeSnapshot } from '@/machine/snap';
+import { useComputedSnapshot, useUnsafeSnapshot } from '@/machine/snap';
 import { NATIVE_NEAR_DUMB_ASSET_ID, WNEAR_ASSET_ID } from '@/constants/tokens';
 import { getIntentsAccountId } from '@/utils/intents/getIntentsAccountId';
-import { formatBigToHuman } from '@/utils/formatters/formatBigToHuman';
+import { getIntentsAccountTypeFromAddress } from '@/utils/chains/getIntentsAccountTypeFromAddress';
+import { getDepositType } from '@/utils/intents/getDepositType';
+import { getQuoteRecipient } from '@/utils/intents/getQuoteRecipient';
+import { getQuoteRefundTo } from '@/utils/intents/getQuoteRefundTo';
+import { getQuoteRefundType } from '@/utils/intents/getQuoteRefundType';
+import { getFlexInputRetryAmount } from '@/utils/intents/getFlexInputRetryAmount';
+import { isAuroraRecipient } from '@/utils/intents/isAuroraRecipient';
+import { isAuroraSourceRefund } from '@/utils/intents/isAuroraSourceRefund';
+import { isAuroraToken } from '@/utils/intents/isAuroraToken';
+import { supportsAuroraVcRefund } from '@/utils/intents/supportsAuroraVcRefund';
+import { formatMinDepositAmount } from '@/utils/formatters/formatMinDepositAmount';
+import { getResponseErrorMessage } from '@/utils/getResponseErrorMessage';
+import { isNotEmptyAmount } from '@/utils/checkers/isNotEmptyAmount';
 import { isDryQuote } from '@/machine/guards/checks/isDryQuote';
 import { getDryQuoteAddress } from '@/utils/getDryQuoteAddress';
 
+import type { AppFee, Quote } from '../types';
+
+import { useSupportedChains } from './useSupportedChains';
+import { useIntentsAccountId } from './useIntentsAccountId';
+import { useIntentsAccountType } from './useIntentsAccountType';
+
+type QuoteRequestResult = {
+  quote: OneClickQuote;
+  appFees?: readonly AppFee[];
+};
+
 type MakeArgs = {
-  message?: string;
   quoteType?: 'exact_in' | 'exact_out';
   options?: {
     isRefetch?: boolean;
@@ -48,43 +67,56 @@ const validateQuoteProperties = (
 
 export const useMakeQuote = () => {
   const { ctx } = useUnsafeSnapshot();
+  const { minDepositTokenAmount } = useComputedSnapshot();
   const { intentsAccountType } = useIntentsAccountType();
+  const intentsAccountId = useIntentsAccountId();
   const { supportedChains } = useSupportedChains();
-  const { appName, apiKey, appFees, fetchQuote, slippageTolerance } =
-    useConfig();
+  const {
+    apiKey,
+    appFees,
+    fetchQuote,
+    referral,
+    extraQuoteParameters,
+    attachWalletAddressToQuote,
+  } = useConfig();
 
   const isDry = isDryQuote(ctx);
 
-  const request = useRef<Promise<OneClickQuote>>(null);
+  const request = useRef<Promise<QuoteRequestResult>>(null);
   const abortController = useRef<AbortController>(new AbortController());
 
-  const requestQuote = useMemo(() => {
-    return async (
+  const requestQuote = useCallback(
+    async (
       data: QuoteRequest,
       metadata: { isRefetch?: boolean },
-    ): Promise<OneClickQuote> => {
+    ): Promise<QuoteRequestResult> => {
       const { signal } = abortController.current;
 
       if (fetchQuote) {
-        return fetchQuote(data, {
-          ...metadata,
-          signal,
-        });
+        return {
+          quote: await fetchQuote(data, {
+            ...metadata,
+            signal,
+          }),
+        };
       }
 
-      return (
-        await oneClickApi.post<QuoteResponse, AxiosResponse<QuoteResponse>>(
-          // no need for extra check API will return missing API key error
-          `https://intents-api.aurora.dev/api/quote/${apiKey ?? ''}`,
-          data,
-          { signal },
-        )
-      ).data.quote;
-    };
-  }, [apiKey, oneClickApi]);
+      const { data: response } = await feeServiceApi.post<
+        QuoteResponse,
+        AxiosResponse<QuoteResponse>
+      >(
+        // no need for extra check API will return missing API key error
+        `/api/quote/${apiKey ?? ''}`,
+        data,
+        { signal },
+      );
+
+      return { quote: response.quote, appFees: response.quoteRequest?.appFees };
+    },
+    [apiKey, fetchQuote],
+  );
 
   const make = async ({
-    message,
     quoteType = 'exact_in',
     options = {},
   }: MakeArgs = {}): Promise<Quote | undefined> => {
@@ -114,38 +146,40 @@ export const useMakeQuote = () => {
       });
     }
 
+    // address on the target chain should be a dry quote recipient
+    const recipientWalletAddress = isDry
+      ? getDryQuoteAddress(ctx.targetToken.blockchain)
+      : (ctx.walletAddress ?? '');
+
+    // A dry quote's placeholder address stands in for the account too.
     const recipientIntentsAccountId = isDry
       ? getIntentsAccountId({
-          addressType: intentsAccountType ?? 'evm',
-          // address on the target chain should be a dry quote recipient
-          walletAddress: getDryQuoteAddress(ctx.targetToken.blockchain),
+          addressType:
+            getIntentsAccountTypeFromAddress(recipientWalletAddress) ??
+            intentsAccountType,
+          walletAddress: recipientWalletAddress,
         })
-      : getIntentsAccountId({
-          addressType: intentsAccountType,
-          walletAddress: ctx.walletAddress ?? '',
-        });
+      : intentsAccountId;
+
+    // Withdrawals from Aurora reach Intents via the exitToNear precompile,
+    // so the source funds always land on Intents — treat like an Intent source
+    // for deposit/refund purposes. Refunds go back to the user's EVM-keyed
+    // Intents account (refundTo = EVM address, refundType = INTENTS).
+    const isAuroraSource = isAuroraToken(ctx.sourceToken);
 
     const isRefundToIntentAccount =
       recipientIntentsAccountId &&
       (ctx.sourceToken.isIntent ||
+        isAuroraSource ||
         !supportedChains.includes(ctx.sourceToken.blockchain));
 
-    const getRefundToAccountId = () => {
-      if (isDry) {
-        return getDryQuoteAddress(
-          ctx.sourceToken.blockchain,
-          ctx.sourceToken.isIntent,
-        );
-      }
+    const isUserDefinedRefundAddress =
+      ctx.isDepositFromExternalWallet &&
+      !ctx.walletAddress &&
+      !!ctx.sendAddress &&
+      !ctx.targetToken.isIntent;
 
-      if (isRefundToIntentAccount) {
-        return recipientIntentsAccountId;
-      }
-
-      return ctx.walletAddress ?? '';
-    };
-
-    if (!recipientIntentsAccountId) {
+    if (!recipientIntentsAccountId && !isUserDefinedRefundAddress) {
       const msg = 'No corresponding intents account to run a quote';
 
       logger.error(`[WIDGET] ${msg}`);
@@ -160,20 +194,29 @@ export const useMakeQuote = () => {
       abortController.current = new AbortController();
     }
 
-    let quoteResponse: OneClickQuote;
+    let quoteResult: QuoteRequestResult;
 
-    const commonQuoteParams: Omit<
+    let commonQuoteParams: Omit<
       QuoteRequest,
-      'recipient' | 'recipientType' | 'depositType' | 'refundTo' | 'refundType'
-    > = {
+      | 'recipient'
+      | 'recipientType'
+      | 'depositType'
+      | 'refundTo'
+      | 'refundType'
+      | 'confidentiality'
+    > & {
+      confidentiality: NonNullable<QuoteRequest['confidentiality']>;
+    } = {
       // Settings
       dry: isDry,
-      slippageTolerance,
+      slippageTolerance: ctx.maxSlippage,
       deadline: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1 hour
-      swapType:
-        quoteType === 'exact_out'
-          ? QuoteRequest.swapType.EXACT_OUTPUT
-          : QuoteRequest.swapType.EXACT_INPUT,
+
+      // Confidentiality
+      confidentiality:
+        ctx.confidentialMode === 'confidential'
+          ? QuoteRequest.confidentiality.BASIC
+          : QuoteRequest.confidentiality.PUBLIC,
 
       // Target
       destinationAsset:
@@ -187,33 +230,195 @@ export const useMakeQuote = () => {
           ? WNEAR_ASSET_ID
           : ctx.sourceToken.assetId,
 
-      amount:
-        quoteType === 'exact_out'
-          ? ctx.targetTokenAmount
-          : ctx.sourceTokenAmount,
-
       // Experimental
       quoteWaitingTimeMs: 0,
+
+      // to be overridden below
+      amount: '0',
+      swapType: QuoteRequest.swapType.EXACT_INPUT,
+
+      // other
+      ...(attachWalletAddressToQuote && ctx.walletAddress
+        ? { connectedWallets: [ctx.walletAddress] }
+        : {}),
     };
 
-    if (message) {
-      // @ts-expect-error customRecipientMsg is not in the types
-      commonQuoteParams.customRecipientMsg = message;
+    // UX wise we support FLEX_INPUT only for external deposits
+    // while technically it's possible to do swaps with FLEX_INPUT as well
+    // maybe in the future we will simplify the conditions here and support FLEX_INPUT for all cases
+    if (!ctx.isDepositFromExternalWallet) {
+      if (
+        quoteType === 'exact_out' &&
+        isNotEmptyAmount(ctx.targetTokenAmount)
+      ) {
+        commonQuoteParams = {
+          ...commonQuoteParams,
+          amount: ctx.targetTokenAmount,
+          swapType: QuoteRequest.swapType.EXACT_OUTPUT,
+        };
+      } else if (
+        quoteType === 'exact_in' &&
+        isNotEmptyAmount(ctx.sourceTokenAmount)
+      ) {
+        commonQuoteParams = {
+          ...commonQuoteParams,
+          amount: ctx.sourceTokenAmount,
+          swapType: QuoteRequest.swapType.EXACT_INPUT,
+        };
+      } else {
+        throw new QuoteError({
+          code: 'QUOTE_INVALID_INITIAL',
+          meta: { isDry, message: 'No source token amount' },
+        });
+      }
+    } else {
+      commonQuoteParams = {
+        ...commonQuoteParams,
+        swapType: QuoteRequest.swapType.FLEX_INPUT,
+        amount: minDepositTokenAmount,
+      };
     }
 
-    if (appName) {
-      commonQuoteParams.referral = snakeCase(appName);
+    if (referral) {
+      commonQuoteParams.referral = snakeCase(referral);
     }
 
     if (appFees) {
       commonQuoteParams.appFees = [...appFees];
     }
 
+    const {
+      sessionId,
+      virtualChainRecipient,
+      virtualChainRefundRecipient,
+      customRecipientMsg,
+    } = extraQuoteParameters ?? {};
+
+    // Aurora is a NEAR virtual chain. 1Click forwards the asset by calling
+    // ft_transfer_call on the `aurora` bridge account. So `recipient` is the
+    // literal "aurora" account, and the user's EVM landing address goes in
+    // virtualChainRecipient. virtualChainRefundRecipient is only accepted by
+    // 1Click when the source is NEAR/Intents (otherwise refunds must return
+    // to the origin chain via refundType=ORIGIN_CHAIN).
+    const isAuroraDestination = isAuroraToken(ctx.targetToken);
+    const useAuroraRecipient = isAuroraRecipient(ctx.targetToken);
+    const vcRefundSupported = supportsAuroraVcRefund({
+      sourceToken: ctx.sourceToken,
+      targetToken: ctx.targetToken,
+    });
+
+    const getAuroraDestinationRecipient = () => {
+      if (!isAuroraDestination) {
+        return undefined;
+      }
+
+      if (!ctx.targetToken.isIntent && ctx.sendAddress) {
+        return ctx.sendAddress;
+      }
+
+      return recipientWalletAddress;
+    };
+
+    const auroraDestinationRecipient = getAuroraDestinationRecipient();
+
+    const auroraSourceRefundRecipient = isAuroraSourceRefund({
+      sourceToken: ctx.sourceToken,
+      targetToken: ctx.targetToken,
+    })
+      ? (ctx.walletAddress ?? undefined)
+      : undefined;
+
+    const getRefundTo = () => {
+      // Dry quotes use placeholder addresses (no real wallet connected) so the
+      // refundTo is just a placeholder. Keep the original dry behaviour rather
+      // than routing through the shared util, which expects real addresses.
+      if (isDry) {
+        if (useAuroraRecipient) {
+          return vcRefundSupported ? 'aurora' : (ctx.walletAddress ?? '');
+        }
+
+        if (auroraSourceRefundRecipient) {
+          return 'aurora';
+        }
+
+        return getDryQuoteAddress(
+          ctx.sourceToken.blockchain,
+          ctx.sourceToken.isIntent,
+        );
+      }
+
+      return getQuoteRefundTo({
+        walletAddress: ctx.walletAddress ?? '',
+        sourceToken: ctx.sourceToken,
+        targetToken: ctx.targetToken,
+        intentsAccountType,
+        intentsAccountId,
+        supportedChains,
+        defaultRefundTo: ctx.walletAddress ?? '',
+      });
+    };
+
+    const getRefundType = () => {
+      // Dry quotes hit the inline logic for the same reason as getRefundTo:
+      // `auroraSourceRefundRecipient` collapses to undefined when there's no
+      // wallet, which changes the branch chosen relative to the real-quote
+      // util that uses the predicate alone.
+      if (isDry) {
+        if (useAuroraRecipient || auroraSourceRefundRecipient) {
+          return QuoteRequest.refundType.ORIGIN_CHAIN;
+        }
+
+        return isRefundToIntentAccount
+          ? QuoteRequest.refundType.INTENTS
+          : QuoteRequest.refundType.ORIGIN_CHAIN;
+      }
+
+      return getQuoteRefundType({
+        walletAddress: ctx.walletAddress ?? '',
+        sourceToken: ctx.sourceToken,
+        targetToken: ctx.targetToken,
+        intentsAccountType,
+        intentsAccountId,
+        supportedChains,
+      }) as QuoteRequest.refundType;
+    };
+
+    const resolvedVirtualChainRecipient =
+      virtualChainRecipient ?? auroraDestinationRecipient;
+
+    const resolvedVirtualChainRefundRecipient =
+      virtualChainRefundRecipient ??
+      (vcRefundSupported ? auroraDestinationRecipient : undefined) ??
+      auroraSourceRefundRecipient;
+
+    const filteredExtraQuoteParameters = {
+      ...(resolvedVirtualChainRecipient
+        ? { virtualChainRecipient: resolvedVirtualChainRecipient }
+        : {}),
+      ...(resolvedVirtualChainRefundRecipient
+        ? { virtualChainRefundRecipient: resolvedVirtualChainRefundRecipient }
+        : {}),
+      ...(sessionId ? { sessionId } : {}),
+      ...(customRecipientMsg ? { customRecipientMsg } : {}),
+    };
+
     try {
       if (ctx.sourceToken.isIntent && ctx.targetToken.isIntent) {
+        if (!recipientIntentsAccountId) {
+          throw new QuoteError({
+            code: 'QUOTE_INVALID_INITIAL',
+            meta: {
+              isDry,
+              message:
+                'recipientIntentsAccountId is not set for internal quote',
+            },
+          });
+        }
+
         request.current = requestQuote(
           {
             ...commonQuoteParams,
+            ...filteredExtraQuoteParameters,
             recipient: recipientIntentsAccountId,
             recipientType: QuoteRequest.recipientType.INTENTS,
             depositType: QuoteRequest.depositType.INTENTS,
@@ -225,33 +430,84 @@ export const useMakeQuote = () => {
           options,
         );
 
-        quoteResponse = await request.current;
-      }
+        quoteResult = await request.current;
+      } else {
+        const recipient = getQuoteRecipient({
+          intentsAccountType,
+          intentsAccountId: isDry ? undefined : intentsAccountId,
+          sendAddress: ctx.sendAddress,
+          targetToken: ctx.targetToken,
+          walletAddress: recipientWalletAddress,
+          defaultRecipient: recipientIntentsAccountId,
+          isDry,
+        });
 
-      request.current = requestQuote(
-        {
+        if (!recipient) {
+          throw new QuoteError({
+            code: 'QUOTE_INVALID_INITIAL',
+            meta: {
+              isDry,
+              message: 'Recipient is not set for a quote',
+            },
+          });
+        }
+
+        const externalQuoteParams: QuoteRequest = {
           ...commonQuoteParams,
-          recipient:
-            !ctx.targetToken.isIntent && ctx.sendAddress
-              ? ctx.sendAddress
-              : recipientIntentsAccountId,
+          ...filteredExtraQuoteParameters,
+          recipient,
           recipientType: ctx.targetToken.isIntent
             ? QuoteRequest.recipientType.INTENTS
             : QuoteRequest.recipientType.DESTINATION_CHAIN,
-          depositType: ctx.sourceToken.isIntent
-            ? QuoteRequest.depositType.INTENTS
-            : QuoteRequest.depositType.ORIGIN_CHAIN,
+          depositType: getDepositType(
+            ctx.sourceToken,
+          ) as QuoteRequest.depositType,
 
-          // Refund
-          refundTo: getRefundToAccountId(),
-          refundType: isRefundToIntentAccount
-            ? QuoteRequest.refundType.INTENTS
-            : QuoteRequest.refundType.ORIGIN_CHAIN,
-        },
-        options,
-      );
+          // Refund. For Aurora-VC deposits, 1Click requires refundType
+          // ORIGIN_CHAIN; if the source is Intents/NEAR the refund target
+          // is the literal 'aurora' account, otherwise it's the user's
+          // address on the origin chain.
+          refundTo: isUserDefinedRefundAddress
+            ? (ctx.refundToAddress ?? '')
+            : getRefundTo(),
+          refundType: isUserDefinedRefundAddress
+            ? QuoteRequest.refundType.ORIGIN_CHAIN
+            : getRefundType(),
 
-      quoteResponse = await request.current;
+          depositMode:
+            ctx.sourceToken.blockchain === 'stellar'
+              ? QuoteRequest.depositMode.MEMO
+              : QuoteRequest.depositMode.SIMPLE,
+        };
+
+        request.current = requestQuote(externalQuoteParams, options);
+
+        try {
+          quoteResult = await request.current;
+        } catch (error: unknown) {
+          // FLEX_INPUT accepts any deposit amount, so a bridge minimum above the
+          // USD floor is not the user's to fix - retry once at that minimum.
+          const retryAmount =
+            externalQuoteParams.swapType === QuoteRequest.swapType.FLEX_INPUT &&
+            error instanceof AxiosError
+              ? getFlexInputRetryAmount(
+                  getResponseErrorMessage(error) ?? '',
+                  ctx.maxSlippage,
+                )
+              : undefined;
+
+          if (!retryAmount) {
+            throw error;
+          }
+
+          request.current = requestQuote(
+            { ...externalQuoteParams, amount: retryAmount },
+            options,
+          );
+
+          quoteResult = await request.current;
+        }
+      }
     } catch (error: unknown) {
       if (error instanceof CanceledError) {
         return;
@@ -261,7 +517,7 @@ export const useMakeQuote = () => {
       let errorMessage = error instanceof Error ? error.message : '';
 
       if (error instanceof AxiosError) {
-        errorMessage = error.response?.data.message || errorMessage;
+        errorMessage = getResponseErrorMessage(error) ?? errorMessage;
 
         if (errorMessage.includes('Amount is too low')) {
           const match = errorMessage.match(/\d+/);
@@ -272,7 +528,10 @@ export const useMakeQuote = () => {
             meta: {
               minAmount:
                 (minAmount &&
-                  formatBigToHuman(minAmount, ctx.sourceToken.decimals)) ??
+                  formatMinDepositAmount(
+                    minAmount,
+                    ctx.sourceToken.decimals,
+                  )) ??
                 '0',
             },
           });
@@ -296,6 +555,12 @@ export const useMakeQuote = () => {
           });
         }
 
+        if (errorMessage.includes('Quoting for this pair is not available')) {
+          throw new QuoteError({
+            code: 'QUOTE_PAIR_NOT_AVAILABLE',
+          });
+        }
+
         throw error;
       }
 
@@ -310,13 +575,16 @@ export const useMakeQuote = () => {
     if (isDry) {
       return {
         dry: true,
-        ...quoteResponse,
+        type: 'QUOTE_DRY_WITH_AMOUNT',
+        ...quoteResult.quote,
+        appFees: quoteResult.appFees,
+        swapType: commonQuoteParams.swapType,
         deadline: undefined,
         depositAddress: undefined,
       };
     }
 
-    if (!validateQuoteProperties(quoteResponse)) {
+    if (!validateQuoteProperties(quoteResult.quote)) {
       throw new QuoteError({
         code: 'QUOTE_INVALID',
         meta: { isDry: false },
@@ -325,9 +593,16 @@ export const useMakeQuote = () => {
 
     return {
       dry: false,
-      ...quoteResponse,
-      deadline: quoteResponse.deadline,
-      depositAddress: quoteResponse.depositAddress,
+      type:
+        commonQuoteParams.swapType === QuoteRequest.swapType.FLEX_INPUT
+          ? 'QUOTE_DEPOSIT_ANY_AMOUNT'
+          : 'QUOTE_REAL_WITH_AMOUNT',
+      ...quoteResult.quote,
+      appFees: quoteResult.appFees,
+      swapType: commonQuoteParams.swapType,
+      deadline: quoteResult.quote.deadline,
+      depositAddress: quoteResult.quote.depositAddress,
+      depositMemo: quoteResult.quote.depositMemo,
     };
   };
 

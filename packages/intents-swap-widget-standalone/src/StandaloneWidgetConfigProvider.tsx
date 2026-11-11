@@ -6,11 +6,15 @@ import { AppKitProvider } from './appkit';
 import { useWalletSelector } from './useWalletSelector';
 import { WalletSelectorModal } from './WalletSelectorModal';
 
-export type StandaloneWidgetConfigProviderProps = Omit<WidgetConfigProviderProps, 'config'> & {
+export type StandaloneWidgetConfigProviderProps = Omit<
+  WidgetConfigProviderProps,
+  'config'
+> & {
   config: Omit<
     WidgetConfigProviderProps['config'],
     | 'connectedWallets'
     | 'providers'
+    | 'networks'
     | 'onWalletSignin'
     | 'onWalletSignout'
     | 'showProfileButton'
@@ -31,6 +35,7 @@ function StandaloneWalletBridge({
           ...config,
           connectedWallets: wallet.connectedWallets,
           providers: wallet.providers,
+          plugins: wallet.plugins,
           onWalletSignin: wallet.connect,
           onWalletSignout: wallet.disconnect,
           showProfileButton: true,
@@ -44,6 +49,7 @@ function StandaloneWalletBridge({
         onClose={wallet.closeSelector}
         onSelectNear={wallet.selectNear}
         onSelectEvmSolana={wallet.selectEvmSolana}
+        onSelectStellar={wallet.selectStellar}
       />
     </>
   );
@@ -55,7 +61,7 @@ export const StandaloneWidgetConfigProvider = ({
   ...restProps
 }: StandaloneWidgetConfigProviderProps) => {
   return (
-    <AppKitProvider appName={config.appName} theme={restProps.theme}>
+    <AppKitProvider appName="Near Intents" theme={restProps.theme}>
       <StandaloneWalletBridge config={config} {...restProps}>
         {children}
       </StandaloneWalletBridge>

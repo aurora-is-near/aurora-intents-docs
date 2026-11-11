@@ -18,6 +18,8 @@ const __dirname = dirname(__filename);
 
 const testFiles = ['**/*.test.tsx', '**/*.test.ts', 'src/tests/**'];
 
+const isWatch = process.argv.includes('--watch') || process.argv.includes('-w');
+
 const externals = [
   ...Object.keys(pkg.dependencies ?? {}),
   ...Object.keys(pkg.peerDependencies ?? {}),
@@ -46,16 +48,17 @@ export default defineConfig({
     }),
     tailwindcss(),
     react(),
-    dts({
-      include: ['src'],
-      exclude: testFiles,
-      entryRoot: 'src',
-      outDir: 'dist',
-      tsconfigPath: 'tsconfig.build.json',
-      copyDtsFiles: false,
-      rollupTypes: false,
-      insertTypesEntry: true,
-    }),
+    !isWatch &&
+      dts({
+        include: ['src'],
+        exclude: testFiles,
+        entryRoot: 'src',
+        outDir: 'dist',
+        tsconfigPath: 'tsconfig.build.json',
+        copyDtsFiles: false,
+        rollupTypes: false,
+        insertTypesEntry: true,
+      }),
     nodePolyfills({
       include: ['crypto', 'buffer', 'process', 'util'],
       globals: {
@@ -107,6 +110,7 @@ export default defineConfig({
       external: (id) => isExt(id) || id.includes('test.ts'),
       output: {
         entryFileNames: '[name].js',
+        chunkFileNames: isWatch ? '[name].js' : '[name]-[hash].js',
         assetFileNames: (assetInfo) => {
           if (assetInfo.name && assetInfo.name.endsWith('.css')) {
             return 'styles.css';
@@ -130,6 +134,6 @@ export default defineConfig({
     },
     sourcemap: true,
     target: 'esnext',
-    emptyOutDir: true,
+    emptyOutDir: !isWatch,
   },
 });

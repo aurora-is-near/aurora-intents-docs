@@ -1,20 +1,24 @@
 import { useMemo } from 'react';
 
-import { Msg, TokenInputWithToken } from './TokenInput';
-import { TokenInputEmpty } from './TokenInputEmpty';
-import { useTokenInputBalance } from './hooks';
 import { formatBigToHuman } from '@/utils/formatters/formatBigToHuman';
 import { useUnsafeSnapshot } from '@/machine/snap';
+
+import { useTokenInputBalance } from './hooks';
+import { TokenInputEmpty } from './TokenInputEmpty';
+import { TokenInputWithToken } from './TokenInput';
+import type { Msg, Props as TokenInputProps } from './TokenInput';
 
 export type Props = {
   heading: string;
   isChanging?: boolean;
   showBalance?: boolean;
+  state?: TokenInputProps['state'];
   onMsg: (msg: Msg) => void;
 };
 
 export const TokenInputSource = ({
   onMsg,
+  state,
   isChanging = true,
   showBalance = true,
   heading,
@@ -48,7 +52,7 @@ export const TokenInputSource = ({
     <TokenInputWithToken
       heading={heading}
       token={ctx.sourceToken}
-      state={sourceInputState}
+      state={state ?? sourceInputState}
       balance={sourceTokenBalance}
       showBalance={showBalance}
       showQuickBalanceActions

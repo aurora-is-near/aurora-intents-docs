@@ -1,12 +1,14 @@
 import { forwardRef } from 'react';
 import { IMaskMixin } from 'react-imask';
-import type { InputElement } from 'imask';
 import type { IMaskMixinProps } from 'react-imask';
 
 import { Input as UIInput } from '@headlessui/react';
 
-import type { Props as InputProps } from './Input';
 import { cn } from '@/utils/cn';
+import { useDisplayAmount } from '@/hooks/useDisplayAmount';
+import type { Props as InputProps } from './Input';
+
+type InputElement = HTMLTextAreaElement | HTMLInputElement;
 
 const RawInputAmount = forwardRef<
   InputElement,
@@ -29,7 +31,10 @@ const RawInputAmount = forwardRef<
         fontSize: rawValue && rawValue.length > 15 ? '24px' : '32px',
       }}
       // hack to not show password manager icons in some cases
-      readOnly
+      // disabled on touch devices — readOnly at tap time prevents iOS keyboard from appearing
+      readOnly={
+        typeof navigator !== 'undefined' && navigator.maxTouchPoints === 0
+      }
       onFocus={(e) => {
         e.target.removeAttribute('readOnly');
         onFocus?.(e);
@@ -57,14 +62,20 @@ export const InputAmount = ({
   value: string;
   setValue: (v: string) => void;
 }) => {
+  const [displayValue, setDisplayValue] = useDisplayAmount(value);
+
   return (
     // @ts-expect-error Use Number instead of MaskedNumber
     <MaskedInputAmount
       scale={18}
-      value={value}
-      rawValue={value}
+      value={displayValue}
+      rawValue={displayValue}
       mask={Number}
-      onAccept={setValue}
+      max={Infinity}
+      onAccept={(v: string) => {
+        setDisplayValue(v);
+        setValue(v);
+      }}
       padFractionalZeros={false}
       normalizeZeros
       thousandsSeparator=""

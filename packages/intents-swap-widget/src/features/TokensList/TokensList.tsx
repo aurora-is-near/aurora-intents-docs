@@ -1,25 +1,6 @@
 import { VList, VListHandle } from 'virtua';
 import { useCallback, useMemo, useRef, useState } from 'react';
 
-import { TokenItem } from './TokenItem';
-import { useFocusOnList } from './hooks';
-import { TokensListPlaceholder } from './TokensListPlaceholder';
-import {
-  LIST_CONTAINER_ID,
-  MAX_LIST_VIEW_AREA_HEIGHT,
-  TOKEN_ITEM_HEIGHT,
-} from './constants';
-import {
-  getFirstGroupItemTotalIndex,
-  getGroupHeadersTotalIndexes,
-  getListItemsTotalCount,
-  getListState,
-  getListTotalHeight,
-  getTokenByTotalIndex,
-} from './utils';
-import type { ListGroup } from './types';
-
-import { useSupportedChains } from '../../hooks/useSupportedChains';
 import { cn } from '@/utils/cn';
 import { Hr } from '@/components/Hr';
 import { useUnsafeSnapshot } from '@/machine/snap';
@@ -31,6 +12,24 @@ import { useConfig } from '@/config';
 
 import type { Chains, ChainsFilter } from '@/types/chain';
 import type { Token } from '@/types/token';
+import { useSupportedChains } from '../../hooks/useSupportedChains';
+import type { ListGroup } from './types';
+import {
+  getFirstGroupItemTotalIndex,
+  getGroupHeadersTotalIndexes,
+  getListItemsTotalCount,
+  getListState,
+  getTokenByTotalIndex,
+} from './utils';
+import {
+  LIST_CONTAINER_ID,
+  LIST_VIEW_AREA_HEIGHT,
+  TOKEN_ITEM_HEIGHT,
+} from './constants';
+import { TokensListPlaceholder } from './TokensListPlaceholder';
+import { RefreshBalanceButton } from './RefreshBalanceButton';
+import { useFocusOnList } from './hooks';
+import { TokenItem } from './TokenItem';
 
 type Msg =
   | { type: 'on_select_token'; token: Token }
@@ -41,6 +40,7 @@ type Props = {
   search: string;
   groupTokens: boolean;
   showBalances: boolean;
+  keyboardNavigationEnabled: boolean;
   chainsFilter: ChainsFilter;
   selectedChain: 'all' | 'intents' | Chains;
   chainIsNotSupported: boolean;
@@ -54,6 +54,7 @@ export const TokensList = ({
   className,
   groupTokens,
   showBalances,
+  keyboardNavigationEnabled,
   chainsFilter,
   selectedChain,
   chainIsNotSupported,
@@ -61,7 +62,7 @@ export const TokensList = ({
 }: Props) => {
   const { t } = useTypedTranslation();
   const { ctx } = useUnsafeSnapshot();
-  const { appName, priorityAssets = [] } = useConfig();
+  const { priorityAssets = [] } = useConfig();
   const { supportedChains } = useSupportedChains();
   const { mergedBalance } = useMergedBalance();
 
@@ -80,8 +81,11 @@ export const TokensList = ({
   const ref = useRef<VListHandle>(null);
   const [focusedIndex, setFocusedIndex] = useState(-1);
 
-  const tokensUngrouped = useMemo<ListGroup<1>>(
-    () => [{ tokens: filteredTokens.all }],
+  const tokensUngrouped = useMemo<ListGroup<2>>(
+    () => [
+      { label: 'All tokens', count: filteredTokens.all.length },
+      { tokens: filteredTokens.all },
+    ],
     [filteredTokens.all],
   );
 
@@ -89,7 +93,7 @@ export const TokensList = ({
     return [
       ...(filteredTokens.intents.length > 0
         ? [
-            { label: appName, count: filteredTokens.intents.length },
+            { label: 'Near Intents', count: filteredTokens.intents.length },
             { tokens: filteredTokens.intents },
           ]
         : []),
@@ -107,7 +111,6 @@ export const TokensList = ({
 
   const tokensList = areTokensGrouped ? tokensBySection : tokensUngrouped;
 
-  const listHeight = getListTotalHeight(tokensList);
   const totalItems = getListItemsTotalCount(tokensList);
   const headerIndexes = getGroupHeadersTotalIndexes(tokensList);
 
@@ -118,6 +121,7 @@ export const TokensList = ({
   useFocusOnList({
     listRef: ref.current,
     initialFocusedIndex: areTokensGrouped ? 1 : 0,
+    isEnabled: keyboardNavigationEnabled,
     onFocus: (index) => setFocusedIndex(index),
     onBlur: handleBlur,
   });
@@ -149,9 +153,7 @@ export const TokensList = ({
             itemSize={TOKEN_ITEM_HEIGHT}
             className="hide-scrollbar"
             style={{
-              minHeight: 200,
-              height: listHeight,
-              maxHeight: MAX_LIST_VIEW_AREA_HEIGHT,
+              height: LIST_VIEW_AREA_HEIGHT,
               overflowAnchor: 'none',
               outline: 'none',
             }}
@@ -228,7 +230,10 @@ export const TokensList = ({
                       key={label}
                       className="pb-sw-lg pt-sw-sm flex flex-col">
                       <Hr />
-                      <span className="text-sw-label-sm pt-sw-xl text-sw-gray-100">{`${label} — ${count}`}</span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sw-label-sm pt-sw-xl text-sw-gray-100">{`${label} — ${count}`}</span>
+                        <RefreshBalanceButton />
+                      </div>
                     </header>
                   );
                 }
@@ -240,6 +245,7 @@ export const TokensList = ({
                     return (
                       <TokenItem
                         token={token}
+                        variant={variant}
                         key={tokenBalanceKey}
                         showBalance={showBalances}
                         balance={mergedBalance[tokenBalanceKey]}
@@ -264,17 +270,28 @@ export const TokensList = ({
 
     case 'NO_TOKENS':
     default:
-      return (
+      // The "no balances on Near Intents" copy only makes sense for the Intents
+      // view; any other chain filter gets a neutral empty state.
+      return selectedChain === 'intents' ? (
         <TokensListPlaceholder
           className="pt-sw-5xl pb-sw-5xl"
           subHeading={t(
             'tokens.list.noBalanceOnApp.subLabel',
             'Deposit funds to get started',
           )}
-          heading={t('tokens.list.noBalanceOnApp.label', {
-            defaultValue: 'You have no balances on {{appName}}',
-            appName,
-          })}
+          heading={t(
+            'tokens.list.noBalanceOnApp.label',
+            'You have no balances on Near Intents',
+          )}
+        />
+      ) : (
+        <TokensListPlaceholder
+          className="pt-sw-5xl pb-sw-5xl"
+          heading={t('tokens.list.noTokens.label', 'No tokens available')}
+          subHeading={t(
+            'tokens.list.noTokens.subLabel',
+            'Try selecting a different network.',
+          )}
         />
       );
   }

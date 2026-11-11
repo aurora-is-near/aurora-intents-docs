@@ -6,20 +6,23 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "dev": "vite",
-    "build": "vite build",
+    "build": "NODE_OPTIONS=--max-old-space-size=8192 vite build",
+    "lint": "eslint . --ext .js,.ts,.tsx",
     "preview": "vite preview"
   },
   "dependencies": {
     "@aurora-is-near/intents-swap-widget": "*",
-    "@defuse-protocol/one-click-sdk-typescript": "^0.1.5",
-    "@material-symbols-svg/react": "^0.1.19",
+    "@aurora-is-near/intents-swap-widget-evm": "*",
+    "@aurora-is-near/intents-swap-widget-solana": "*",
+    "@defuse-protocol/one-click-sdk-typescript": "^0.1.25",
+    "@ethersproject/sha2": "5.8.0",
     "@material-symbols-svg/react-rounded": "^0.1.19",
-    "@reown/appkit": "^1.8.10",
-    "@reown/appkit-adapter-solana": "^1.8.10",
-    "@reown/appkit-adapter-wagmi": "^1.8.11",
+    "@reown/appkit": "1.8.11",
+    "@reown/appkit-adapter-ethers": "1.8.11",
+    "@reown/appkit-adapter-solana": "1.8.11",
     "@sentry/react": "^10.23.0",
-    "@solana/spl-token": "^0.4.14",
-    "@solana/wallet-adapter-wallets": "^0.19.37",
+    "@solana/wallet-adapter-phantom": "0.9.28",
+    "@solana/wallet-adapter-solflare": "0.6.32",
     "@solana/web3.js": "^1.98.4",
     "@ston-fi/omniston-sdk": "^0.7.5",
     "@ton/core": "^0.62.0",
@@ -28,6 +31,6 @@
     "ethers": "^6.15.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "wagmi": "^2.18.2"
+    "viem": "2.38.4"
   }
 }

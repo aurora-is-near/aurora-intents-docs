@@ -1,12 +1,27 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { Plugins, Providers } from '@aurora-is-near/intents-swap-widget';
+import { evm } from '@aurora-is-near/intents-swap-widget-evm';
+import { sol } from '@aurora-is-near/intents-swap-widget-solana';
+import { stellar } from '@aurora-is-near/intents-swap-widget-stellar';
+import type { NearWalletBase } from '@hot-labs/near-connect';
+
 import { useAppKitWallet } from './useAppKitWallet';
+import { useStellarWallet } from './useStellarWallet';
 import { useAppKitProviders } from './useAppKitProviders';
 import { useNearWallet } from './useNearWallet';
+
+const NETWORK_PLUGINS: Plugins = { evm, sol, stellar };
+
+const isNearWallet = (
+  nearWallet?: NearWalletBase,
+): nearWallet is NearWalletBase => !!nearWallet;
 
 export const useWalletSelector = () => {
   const appKitWallet = useAppKitWallet();
   const appKitProviders = useAppKitProviders();
   const nearWallet = useNearWallet();
+  const stellarWallet = useStellarWallet();
+
   const [showSelector, setShowSelector] = useState(false);
 
   const connect = useCallback(() => {
@@ -20,8 +35,14 @@ export const useWalletSelector = () => {
       return;
     }
 
+    if (stellarWallet.walletAddress) {
+      await stellarWallet.disconnect();
+
+      return;
+    }
+
     await appKitWallet.disconnect();
-  }, [appKitWallet, nearWallet]);
+  }, [appKitWallet, nearWallet, stellarWallet]);
 
   const selectNear = useCallback(async () => {
     setShowSelector(false);
@@ -30,8 +51,12 @@ export const useWalletSelector = () => {
       await appKitWallet.disconnect();
     }
 
+    if (stellarWallet.walletAddress) {
+      await stellarWallet.disconnect();
+    }
+
     await nearWallet.connect();
-  }, [appKitWallet, nearWallet]);
+  }, [appKitWallet, nearWallet, stellarWallet]);
 
   const selectEvmSolana = useCallback(async () => {
     setShowSelector(false);
@@ -40,32 +65,83 @@ export const useWalletSelector = () => {
       await nearWallet.disconnect();
     }
 
+    if (stellarWallet.walletAddress) {
+      await stellarWallet.disconnect();
+    }
+
     await appKitWallet.connect();
-  }, [appKitWallet, nearWallet]);
+  }, [appKitWallet, nearWallet, stellarWallet]);
+
+  const selectStellar = useCallback(async () => {
+    setShowSelector(false);
+
+    if (nearWallet.isConnected) {
+      await nearWallet.disconnect();
+    }
+
+    if (appKitWallet.isConnected) {
+      await appKitWallet.disconnect();
+    }
+
+    await stellarWallet.connect();
+  }, [appKitWallet, nearWallet, stellarWallet]);
 
   const closeSelector = useCallback(() => {
     setShowSelector(false);
   }, []);
 
-  const connectedWallets = nearWallet.isConnected
-    ? { near: nearWallet.accountId }
-    : { default: appKitWallet.address };
+  const providers = useMemo(() => {
+    const walletProviders: Providers = {
+      ...appKitProviders,
+    };
 
-  const providers = {
-    ...appKitProviders,
-    near: nearWallet.nearBasedWallet
-      ? () => nearWallet.nearBasedWallet!
-      : undefined,
-  };
+    const { nearWalletBase } = nearWallet;
+
+    if (isNearWallet(nearWalletBase)) {
+      walletProviders.near = () => nearWalletBase;
+    }
+
+    if (stellarWallet.walletAddress) {
+      walletProviders.stellar = {
+        publicKey: stellarWallet.walletAddress,
+        signMessage: stellarWallet.signMessage,
+        signTransaction: stellarWallet.signTransaction,
+      };
+    }
+
+    return walletProviders;
+  }, [appKitProviders, nearWallet, stellarWallet]);
+
+  const connectedWallets = useMemo(() => {
+    let walletAddress: string | undefined;
+
+    if (stellarWallet.walletAddress) {
+      walletAddress = stellarWallet.walletAddress;
+    }
+
+    if (nearWallet.isConnected) {
+      walletAddress = nearWallet.accountId;
+    }
+
+    if (appKitWallet.isConnected) {
+      walletAddress = appKitWallet.address;
+    }
+
+    return {
+      default: walletAddress,
+    };
+  }, [nearWallet, appKitWallet, stellarWallet]);
 
   return {
     showSelector,
     connectedWallets,
     providers,
+    plugins: NETWORK_PLUGINS,
     connect,
     disconnect,
     selectNear,
     selectEvmSolana,
+    selectStellar,
     closeSelector,
   };
 };

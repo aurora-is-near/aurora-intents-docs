@@ -1,9 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import type { CommonWidgetProps, TokenInputType } from '../types';
-import { useTokenModal } from '../../hooks/useTokenModal';
-import { WidgetWithdrawSkeleton } from './WidgetWithdrawSkeleton';
-import { useTypedTranslation } from '../../localisation';
 import {
   SendAddress,
   SubmitButton,
@@ -12,14 +8,6 @@ import {
   TokenInput,
   TokensModal,
 } from '@/features';
-
-import { BlockingError, Card, DirectionSwitcher } from '@/components';
-import { WalletCompatibilityCheck } from '@/features/WalletCompatibilityCheck';
-
-import { useStoreSideEffects } from '@/machine/effects';
-import { useComputedSnapshot, useUnsafeSnapshot } from '@/machine/snap';
-import { fireEvent } from '@/machine/events/utils/fireEvent';
-
 import {
   useIntentsAccountType,
   useIsCompatibilityCheckRequired,
@@ -28,14 +16,24 @@ import {
   useWalletConnection,
 } from '@/hooks';
 import { useConfig } from '@/config';
-
-import { isDebug, notReachable } from '@/utils';
-
+import { isDebug, noop, notReachable } from '@/utils';
+import { useUnsafeSnapshot } from '@/machine/snap';
+import { useStoreSideEffects } from '@/machine/effects';
+import { fireEvent } from '@/machine/events/utils/fireEvent';
+import { BlockingError, Card, DirectionSwitcher } from '@/components';
+import { WalletCompatibilityCheck } from '@/features/WalletCompatibilityCheck';
 import type { ChainsFilters, Token, TransferResult } from '@/types';
 
+import { useTypedTranslation } from '../../localisation';
+import { useTokenModal } from '../../hooks/useTokenModal';
+import { WidgetWithdrawSkeleton } from './WidgetWithdrawSkeleton';
+
+import type { CommonWidgetProps, TokenInputType } from '../types';
+
 export type Msg =
+  | { type: 'on_click_edit_slippage' }
   | { type: 'on_select_token'; token: Token; variant: TokenInputType }
-  | { type: 'on_transfer_success' }
+  | ({ type: 'on_transfer_success' } & TransferResult)
   | { type: 'on_tokens_modal_toggled'; isOpen: boolean };
 
 export type Props = CommonWidgetProps<Msg>;
@@ -47,7 +45,6 @@ export const WidgetWithdrawContent = ({
 }: Props) => {
   const { t } = useTypedTranslation();
   const { ctx } = useUnsafeSnapshot();
-  const { isDirectNearTokenWithdrawal } = useComputedSnapshot();
   const { intentsAccountType } = useIntentsAccountType();
   const {
     chainsFilter: customChainsFilter,
@@ -86,16 +83,13 @@ export const WidgetWithdrawContent = ({
   useStoreSideEffects({
     debug: isDebug(),
     listenTo: [
+      'syncConfig',
+      'updateBalances',
       'checkWalletConnection',
       'setSourceTokenBalance',
       [
-        'setDefaultSelectedTokens',
-        { skipIntents: false, target: 'same-asset' },
-      ],
-      [
         'makeQuote',
         {
-          message: undefined,
           type: lastChangedInput === 'target' ? 'exact_out' : 'exact_in',
           refetchQuoteInterval,
         },
@@ -153,7 +147,7 @@ export const WidgetWithdrawContent = ({
     return (
       <SuccessScreen
         showTargetToken
-        title={t('transfer.success.withdrawal.title', 'Withdrawal successful')}
+        transactionType="WITHDRAWAL"
         {...transferResult}
         onMsg={(msg) => {
           switch (msg.type) {
@@ -214,7 +208,7 @@ export const WidgetWithdrawContent = ({
       }
 
       return (
-        <div className="gap-sw-2xl relative flex flex-col w-full">
+        <div className="gap-[10px] relative flex flex-col w-full">
           <div className="gap-[10px] relative flex flex-col">
             <Card padding="none">
               <TokenInput.Source
@@ -273,14 +267,14 @@ export const WidgetWithdrawContent = ({
             ctx.targetToken &&
             !ctx.targetToken.isIntent && <SendAddress />}
 
-          {!isDirectNearTokenWithdrawal && ctx.sourceToken && <SwapQuote />}
+          {ctx.sourceToken && <SwapQuote onMsg={onMsg ?? noop} />}
 
           <SubmitButton
             makeTransfer={makeTransfer}
             label={t('submit.active.withdraw', 'Swap & withdraw')}
             onSuccess={(transfer) => {
               setTransferResult(transfer);
-              onMsg?.({ type: 'on_transfer_success' });
+              onMsg?.({ type: 'on_transfer_success', ...transfer });
             }}
           />
         </div>

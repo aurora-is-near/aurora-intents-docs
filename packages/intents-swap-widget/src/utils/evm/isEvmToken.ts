@@ -1,12 +1,11 @@
-import { isAddress } from 'viem';
-
-import { isEvmChain } from './isEvmChain';
 import type { Token } from '@/types/token';
+import { isEvmAddress } from '../chains/isEvmAddress';
+import { isEvmChain } from './isEvmChain';
 
 export const isEvmToken = (token: Token) => {
   return !!(
     token.contractAddress &&
-    isAddress(token.contractAddress) &&
+    isEvmAddress(token.contractAddress) &&
     isEvmChain(token.blockchain)
   );
 };

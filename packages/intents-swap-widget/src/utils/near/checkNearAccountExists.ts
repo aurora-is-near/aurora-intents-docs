@@ -1,10 +1,13 @@
 import { noop } from '@tanstack/react-query';
 
-import { nearSingleRpcClient } from './rpc';
 import { localStorageTyped } from '@/utils/localstorage';
 import { logger } from '@/logger';
+import { getNearSingleRpcClient } from './rpc';
 
 const DEBOUNCE_MS = 300;
+
+/** Thrown when a newer address check replaces an in-flight one. */
+export const ACCOUNT_CHECK_SUPERSEDED = 'ACCOUNT_CHECK_SUPERSEDED';
 
 const sessionCache = new Map<string, boolean>();
 
@@ -27,7 +30,7 @@ const addVerifiedAccount = (accountId: string): void => {
 
 const queryAccountExists = async (accountId: string): Promise<boolean> => {
   try {
-    await nearSingleRpcClient.query({
+    await getNearSingleRpcClient().query({
       request_type: 'view_account',
       account_id: accountId,
       finality: 'final',
@@ -82,7 +85,7 @@ export const checkNearAccountExists = async (
 
   if (pendingCheck) {
     clearTimeout(pendingCheck.timer);
-    pendingCheck.reject(new Error('ACCOUNT_CHECK_SUPERSEDED'));
+    pendingCheck.reject(new Error(ACCOUNT_CHECK_SUPERSEDED));
     pendingCheck = null;
   }
 

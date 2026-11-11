@@ -1,21 +1,14 @@
 import { z } from 'zod';
-import once from 'lodash.once';
 
+import { logger } from '@/logger';
 import { nearFailoverRpcProvider } from './rpc';
 import { decodeQueryResult } from './decodeQueryResult';
-import { logger } from '@/logger';
 
 type Args = {
   accountId: string;
   tokenAddress: string;
   rpcUrls: string[];
 };
-
-const createNearClient = once((rpcUrls: string[]) => {
-  return nearFailoverRpcProvider({
-    urls: rpcUrls,
-  });
-});
 
 export const getNearNep141Balance = async ({
   tokenAddress,
@@ -25,7 +18,7 @@ export const getNearNep141Balance = async ({
   try {
     const args = { account_id: accountId };
     const argsBase64 = Buffer.from(JSON.stringify(args)).toString('base64');
-    const nearRpcClient = createNearClient(rpcUrls);
+    const nearRpcClient = nearFailoverRpcProvider({ urls: rpcUrls });
 
     const response = await nearRpcClient.query({
       request_type: 'call_function',

@@ -1,5 +1,8 @@
-import { fireEvent } from './utils/fireEvent';
-import { checkNearAccountExists } from '@/utils/near/checkNearAccountExists';
+import {
+  ACCOUNT_CHECK_SUPERSEDED,
+  checkNearAccountExists,
+} from '@/utils/near/checkNearAccountExists';
+import { isValidChainAddress } from '@/utils/checkers/isValidChainAddress';
 import { isNotEmptyAmount } from '@/utils/checkers/isNotEmptyAmount';
 import { isValidBigint } from '@/utils/checkers/isValidBigint';
 import { isNearAddress } from '@/utils/chains/isNearAddress';
@@ -18,6 +21,7 @@ import type {
   InitialExternalStateError,
   InitialInternalStateError,
 } from '@/machine/errors';
+import { fireEvent } from './utils/fireEvent';
 
 const setAsyncError = (err: InitialExternalStateError) => {
   fireEvent('errorSet', err);
@@ -26,8 +30,10 @@ const setAsyncError = (err: InitialExternalStateError) => {
   fireEvent('transferSetStatus', { status: 'idle' });
 };
 
-const asyncValidateSendAddress = async (ctx: Context) => {
-  if (!ctx.sendAddress) {
+const asyncValidateSendAddressOnNear = async (ctx: Context) => {
+  const address = ctx.sendAddress;
+
+  if (!address) {
     return;
   }
 
@@ -35,16 +41,28 @@ const asyncValidateSendAddress = async (ctx: Context) => {
 
   try {
     fireEvent('setInputsValidating', true);
-    exists = await checkNearAccountExists(ctx.sendAddress);
+    exists = await checkNearAccountExists(address);
   } catch (e) {
+    // A newer address replaced this in-flight check: its outcome no longer
+    // applies, and the newer check owns the validating state.
+    if (e instanceof Error && e.message === ACCOUNT_CHECK_SUPERSEDED) {
+      return;
+    }
+
     setAsyncError({
       code: 'SEND_ADDRESS_IS_NOT_VERIFIED',
-      meta: { address: ctx.sendAddress, chain: 'near' },
+      meta: { address, chain: 'near' },
     });
 
     fireEvent('setInputsValidating', false);
-    moveTo('initial_wallet');
+    moveTo(ctx.walletAddress ? 'initial_wallet' : 'initial_dry');
 
+    return;
+  }
+
+  // The send address changed while this check was in flight, so its result
+  // is stale and must not overwrite the current input's validation state.
+  if (ctx.sendAddress !== address) {
     return;
   }
 
@@ -53,18 +71,24 @@ const asyncValidateSendAddress = async (ctx: Context) => {
   if (!exists) {
     setAsyncError({
       code: 'SEND_ADDRESS_IS_NOT_FOUND',
-      meta: { address: ctx.sendAddress, chain: 'near' },
+      meta: { address, chain: 'near' },
     });
 
-    moveTo('initial_wallet');
+    moveTo(ctx.walletAddress ? 'initial_wallet' : 'initial_dry');
 
     return;
   }
 
-  if (!ctx.error) {
-    moveTo('input_valid_external');
-  } else if (isAsyncSendAddressValidationError(ctx.error)) {
-    fireEvent('errorSet', null);
+  const isClearableError =
+    !ctx.error ||
+    ctx.error.code === 'SEND_ADDRESS_IS_INVALID' ||
+    isAsyncSendAddressValidationError(ctx.error);
+
+  if (isClearableError) {
+    if (ctx.error) {
+      fireEvent('errorSet', null);
+    }
+
     moveTo('input_valid_external');
   }
 };
@@ -110,7 +134,13 @@ export const validateDryInputs = (ctx: Context): boolean | undefined => {
 };
 
 export const validateExternalInputs = (ctx: Context): boolean | undefined => {
-  const isValidInitialState = guardStates(ctx, ['initial_wallet']);
+  const isValidInitialState = guardStates(
+    ctx,
+    ctx.isDepositFromExternalWallet
+      ? ['initial_wallet', 'initial_dry']
+      : ['initial_wallet'],
+  );
+
   const isValidInputsState = guardStates(ctx, ['input_valid_external']);
 
   if (!isValidInitialState && !isValidInputsState) {
@@ -127,8 +157,6 @@ export const validateExternalInputs = (ctx: Context): boolean | undefined => {
       err = { code: 'TARGET_TOKEN_IS_EMPTY' };
     } else if (ctx.targetToken.isIntent) {
       err = { code: 'SOURCE_TOKEN_IS_INTENT' };
-    } else if (!isNotEmptyAmount(ctx.sourceTokenAmount)) {
-      err = { code: 'SOURCE_TOKEN_AMOUNT_IS_EMPTY' };
     } else if (!ctx.sendAddress) {
       err = { code: 'SEND_ADDRESS_IS_EMPTY' };
     } else if (ctx.targetToken.blockchain === 'near') {
@@ -138,13 +166,44 @@ export const validateExternalInputs = (ctx: Context): boolean | undefined => {
           meta: { address: ctx.sendAddress, chain: 'near' },
         };
       } else {
-        void asyncValidateSendAddress(ctx);
+        void asyncValidateSendAddressOnNear(ctx);
       }
+    } else if (
+      ctx.sendAddress &&
+      !isValidChainAddress(ctx.targetToken.blockchain, ctx.sendAddress)
+    ) {
+      err = {
+        code: 'SEND_ADDRESS_IS_INVALID',
+        meta: { address: ctx.sendAddress, chain: ctx.targetToken.blockchain },
+      };
     } else if (!ctx.isDepositFromExternalWallet) {
-      if (!sourceBalance || !isValidBigint(sourceBalance)) {
+      if (!isNotEmptyAmount(ctx.sourceTokenAmount)) {
+        err = { code: 'SOURCE_TOKEN_AMOUNT_IS_EMPTY' };
+      } else if (!sourceBalance || !isValidBigint(sourceBalance)) {
         err = { code: 'INVALID_SOURCE_BALANCE' };
       } else if (!isBalanceSufficient(ctx)) {
         err = { code: 'SOURCE_BALANCE_INSUFFICIENT' };
+      }
+    }
+
+    if (
+      !err &&
+      !ctx.walletAddress &&
+      ctx.isDepositFromExternalWallet &&
+      ctx.sourceToken
+    ) {
+      if (!ctx.refundToAddress) {
+        err = { code: 'REFUND_ADDRESS_IS_EMPTY' };
+      } else if (
+        !isValidChainAddress(ctx.sourceToken.blockchain, ctx.refundToAddress)
+      ) {
+        err = {
+          code: 'REFUND_ADDRESS_IS_INVALID',
+          meta: {
+            address: ctx.refundToAddress,
+            chain: ctx.sourceToken.blockchain,
+          },
+        };
       }
     }
   }
@@ -153,7 +212,7 @@ export const validateExternalInputs = (ctx: Context): boolean | undefined => {
   // transition to input_valid_external state was made
   if (isValidInputsState) {
     if (ctx.targetToken.blockchain === 'near') {
-      void asyncValidateSendAddress(ctx);
+      void asyncValidateSendAddressOnNear(ctx);
     }
   }
 
@@ -187,11 +246,11 @@ export const validateInternalInputs = (ctx: Context): boolean | undefined => {
     } else if (!ctx.targetToken) {
       err = { code: 'TARGET_TOKEN_IS_EMPTY' };
     } else if (!ctx.targetToken.isIntent) {
-      err = { code: 'SOURCE_TOKEN_NOT_INTENT' };
-    } else if (!isNotEmptyAmount(ctx.sourceTokenAmount)) {
-      err = { code: 'SOURCE_TOKEN_AMOUNT_IS_EMPTY' };
+      err = { code: 'TARGET_TOKEN_NOT_INTENT' };
     } else if (!ctx.isDepositFromExternalWallet) {
-      if (!sourceBalance || !isValidBigint(sourceBalance)) {
+      if (!isNotEmptyAmount(ctx.sourceTokenAmount)) {
+        err = { code: 'SOURCE_TOKEN_AMOUNT_IS_EMPTY' };
+      } else if (!sourceBalance || !isValidBigint(sourceBalance)) {
         err = { code: 'INVALID_SOURCE_BALANCE' };
       } else if (!isBalanceSufficient(ctx)) {
         err = { code: 'SOURCE_BALANCE_INSUFFICIENT' };

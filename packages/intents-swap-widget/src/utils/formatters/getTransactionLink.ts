@@ -1,12 +1,10 @@
-import { CHAIN_EXPLORERS } from '@/constants/chains';
-
 export const getTransactionLink = (
-  chainId: number | undefined,
   hash: string,
+  { isDirectNearTransfer }: { isDirectNearTransfer?: boolean } = {},
 ): string => {
-  if (!chainId || !CHAIN_EXPLORERS[chainId]) {
-    return `${CHAIN_EXPLORERS[1]}${hash}`;
+  if (isDirectNearTransfer) {
+    return `https://nearblocks.io/txns/${hash}`;
   }
 
-  return `${CHAIN_EXPLORERS[chainId]}${hash}`;
+  return `https://explorer.near-intents.org/transactions/${hash}`;
 };

@@ -1,32 +1,45 @@
 'use client';
 
 import {
+  createContext,
   type ReactNode,
   useEffect,
   useMemo,
   useRef,
   useState,
-  createContext,
 } from 'react';
 
-import { type AppKit, createAppKit } from '@reown/appkit/react';
-import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
+import {
+  type AppKit,
+  createAppKit,
+  type CreateAppKit,
+} from '@reown/appkit/react';
+import { EthersAdapter } from '@reown/appkit-adapter-ethers';
 import { SolanaAdapter } from '@reown/appkit-adapter-solana';
 import {
   arbitrum,
   avalanche,
   base,
+  berachain,
   bsc,
+  defineChain,
+  gnosis,
   mainnet,
   optimism,
+  plasma,
   polygon,
-  solana,
+  scroll,
+  xLayer,
 } from '@reown/appkit/networks';
+import { robinhood as viemRobinhood } from 'viem/chains';
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
+import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
 import {
-  PhantomWalletAdapter,
-  SolflareWalletAdapter,
-} from '@solana/wallet-adapter-wallets';
-import type { Theme } from '@aurora-is-near/intents-swap-widget';
+  type Chains,
+  DEFAULT_RPCS,
+  type Theme,
+} from '@aurora-is-near/intents-swap-widget';
+import { CHAIN_IDS_MAP } from '@aurora-is-near/intents-swap-widget/constants';
 
 type AppKitProviderProps = {
   appName?: string;
@@ -42,6 +55,151 @@ type AppKitContextType = {
 const findFavicon = (): string | null =>
   document.querySelector<HTMLLinkElement>('link[rel*="icon"]')?.href ?? null;
 
+const monadMainnet = defineChain({
+  id: 143,
+  caipNetworkId: 'eip155:143',
+  chainNamespace: 'eip155',
+  name: 'Monad',
+  nativeCurrency: {
+    decimals: 18,
+    name: 'Monad',
+    symbol: 'MON',
+  },
+  blockExplorers: {
+    default: {
+      name: 'Monad Explorer',
+      url: 'https://explorer.monad.xyz',
+    },
+  },
+  rpcUrls: {
+    default: {
+      http: ['https://rpc.monad.xyz'],
+    },
+  },
+});
+
+const adi = defineChain({
+  id: 36900,
+  caipNetworkId: 'eip155:36900',
+  chainNamespace: 'eip155',
+  name: 'ADI',
+  nativeCurrency: {
+    decimals: 18,
+    name: 'ADI',
+    symbol: 'ADI',
+  },
+  blockExplorers: {
+    default: {
+      name: 'ADI Explorer',
+      url: 'https://explorer-bls.adifoundation.ai',
+    },
+  },
+  rpcUrls: {
+    default: {
+      http: ['https://rpc.adifoundation.ai'],
+    },
+  },
+});
+
+const aurora = defineChain({
+  id: 1313161554,
+  caipNetworkId: 'eip155:1313161554',
+  chainNamespace: 'eip155',
+  name: 'Aurora',
+  nativeCurrency: {
+    decimals: 18,
+    name: 'Ether',
+    symbol: 'ETH',
+  },
+  blockExplorers: {
+    default: {
+      name: 'Aurora Explorer',
+      url: 'https://explorer.mainnet.aurora.dev',
+    },
+  },
+  rpcUrls: {
+    default: {
+      http: ['https://mainnet.aurora.dev'],
+    },
+  },
+});
+
+const solanaMainnet = {
+  id: '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
+  name: 'Solana',
+  network: 'solana-mainnet',
+  nativeCurrency: { name: 'Solana', symbol: 'SOL', decimals: 9 },
+  rpcUrls: {
+    default: { http: ['https://rpc.walletconnect.org/v1'] },
+  },
+  blockExplorers: {
+    default: { name: 'Solscan', url: 'https://solscan.io' },
+  },
+  testnet: false,
+  chainNamespace: 'solana',
+  caipNetworkId: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
+  deprecatedCaipNetworkId: 'solana:4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ',
+} as const;
+
+// Reown's networks come from the viem it is typed against, which predates
+// Robinhood Chain (added in viem 2.55). So the values come from our viem and
+// only the fields Reown needs are passed on.
+const robinhood = defineChain({
+  id: viemRobinhood.id,
+  caipNetworkId: `eip155:${viemRobinhood.id}`,
+  chainNamespace: 'eip155',
+  name: viemRobinhood.name,
+  nativeCurrency: viemRobinhood.nativeCurrency,
+  rpcUrls: viemRobinhood.rpcUrls,
+  blockExplorers: viemRobinhood.blockExplorers,
+});
+
+const appKitNetworks = [
+  mainnet,
+  arbitrum,
+  polygon,
+  bsc,
+  optimism,
+  avalanche,
+  base,
+  solanaMainnet,
+  berachain,
+  monadMainnet,
+  gnosis,
+  plasma,
+  scroll,
+  xLayer,
+  adi,
+  robinhood,
+  aurora,
+] satisfies CreateAppKit['networks'];
+
+const defaultRpcUrlsByChainId = new Map(
+  Object.entries(CHAIN_IDS_MAP).flatMap(([chain, chainId]) => {
+    const rpcUrl = DEFAULT_RPCS[chain as Chains]?.[0];
+
+    return chainId && rpcUrl ? ([[chainId, rpcUrl]] as const) : [];
+  }),
+);
+
+// Reown puts its Blockchain API first for supported EVM chains. The Ethers
+// adapter does not fall back when that endpoint is unavailable, so use the
+// same browser-safe defaults as the core balance loader.
+const customRpcUrls = Object.fromEntries(
+  appKitNetworks
+    .filter((network) => typeof network.id === 'number')
+    .map((network) => [
+      `eip155:${network.id}`,
+      [
+        {
+          url:
+            defaultRpcUrlsByChainId.get(network.id) ??
+            network.rpcUrls.default.http[0],
+        },
+      ],
+    ]),
+);
+
 export const initAppKit = ({
   appName,
   theme,
@@ -51,21 +209,7 @@ export const initAppKit = ({
 }) => {
   const projectId = '76f61d4322c80976d1a24a1263a9d082';
 
-  const evmNetworks = [
-    mainnet,
-    arbitrum,
-    polygon,
-    bsc,
-    optimism,
-    avalanche,
-    base,
-  ];
-
-  const wagmiAdapter = new WagmiAdapter({
-    networks: evmNetworks,
-    projectId,
-    ssr: false,
-  });
+  const ethersAdapter = new EthersAdapter();
 
   const solanaAdapter = new SolanaAdapter({
     wallets: [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
@@ -74,19 +218,9 @@ export const initAppKit = ({
   const websiteFavicon = findFavicon();
 
   return createAppKit({
-    adapters: [wagmiAdapter, solanaAdapter],
-    // Networks must be inlined here (not spread from evmNetworks array)
-    // because TypeScript requires a tuple type for AppKit networks
-    networks: [
-      mainnet,
-      arbitrum,
-      polygon,
-      bsc,
-      optimism,
-      avalanche,
-      base,
-      solana,
-    ],
+    adapters: [ethersAdapter, solanaAdapter],
+    networks: appKitNetworks,
+    customRpcUrls,
     projectId,
     metadata: {
       name: appName ?? 'Intents Swap Widget',

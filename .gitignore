@@ -39,3 +39,10 @@ spec.json
 
 # VSCode
 .vscode/
+
+# AI
+.code-review-graph/
+.codex/
+.claude/
+AGENTS.md
+.mcp.json

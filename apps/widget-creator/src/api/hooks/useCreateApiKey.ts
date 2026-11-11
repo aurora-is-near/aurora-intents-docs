@@ -21,7 +21,13 @@ export const useCreateApiKey = () => {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({
-        queryKey: ['apiKeys', user?.id ?? 'anonymous'],
+        queryKey: ['apiKeys', user?.id],
+      });
+
+      // Creating a key records ToS acceptance server-side; refresh the read so
+      // the Studio swaps the acceptance checkbox for the "terms apply" footer.
+      void queryClient.invalidateQueries({
+        queryKey: ['tos', user?.id],
       });
     },
   });

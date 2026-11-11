@@ -1,20 +1,21 @@
 import { snapshot } from 'valtio';
 
-import { getSupportedChains } from '../../../utils/chains/getSupportedChains';
 import { configStore } from '@/config';
 
 import type { Context, ContextChange } from '@/machine/context';
+import { getSupportedChains } from '../../../utils/chains/getSupportedChains';
 
 export const isSendAddressAsConnected = (
   ctx: Context,
   changes: ContextChange[],
 ) => {
   const { config } = snapshot(configStore);
-  const { walletSupportedChains } = config;
+  const { walletSupportedChains, intentsAccountType } = config;
   const { walletAddress } = ctx;
   const supportedChains = getSupportedChains({
     walletAddress,
     walletSupportedChains,
+    intentsAccountType,
   });
 
   return (

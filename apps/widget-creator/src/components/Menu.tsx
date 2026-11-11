@@ -1,16 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  Book,
-  Code,
-  Link,
-  LogIn,
-  LogOut,
-  SlidersHorizontal,
-} from 'lucide-react';
+import { Book, Code, LogIn, LogOut, SlidersHorizontal } from 'lucide-react';
+
 import { CloseW700 as Close } from '@material-symbols-svg/react-rounded/icons/close';
 import { useLogin, useLogout, usePrivy } from '@privy-io/react-auth';
+
 import { cn } from '../utils/cn';
-import { useConfigLink } from '../hooks/useConfigLink';
+
 import { CreatorPanel } from './creatorPanel/CreatorPanel';
 import { MenuItem } from './MenuItem';
 
@@ -23,13 +18,12 @@ type DrawerProps = {
 };
 
 export const Menu = ({ isOpen, onClose, onOpenExportModal }: DrawerProps) => {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const [view, setView] = useState<DrawerView>('menu');
-  const [copyFeedback, setCopyFeedback] = useState(false);
-  const { copyConfigLink } = useConfigLink();
-  const { ready, authenticated } = usePrivy();
   const { login } = useLogin();
   const { logout } = useLogout();
+  const { ready, authenticated } = usePrivy();
+
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [view, setView] = useState<DrawerView>('menu');
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -45,12 +39,6 @@ export const Menu = ({ isOpen, onClose, onOpenExportModal }: DrawerProps) => {
       setView('menu');
     }
   }, [isOpen]);
-
-  const handleCopyLink = async () => {
-    await copyConfigLink();
-    setCopyFeedback(true);
-    setTimeout(() => setCopyFeedback(false), 2000);
-  };
 
   const handleAuth = async () => {
     if (authenticated) {
@@ -99,18 +87,13 @@ export const Menu = ({ isOpen, onClose, onOpenExportModal }: DrawerProps) => {
               />
               <MenuItem
                 icon={<Code className="size-5" />}
-                label="Export code"
+                label="Embed in your app"
                 onClick={onOpenExportModal}
-              />
-              <MenuItem
-                icon={<Link className="size-5" />}
-                label={copyFeedback ? 'Copied!' : 'Copy shareable link'}
-                onClick={handleCopyLink}
               />
               <MenuItem
                 icon={<Book className="size-5" />}
                 label="Get started guide"
-                href="https://docs.intents.aurora.dev/getting-started"
+                href="https://docs.intents.aurora.dev/swap-widget/widget-integration"
               />
               {ready && (
                 <MenuItem

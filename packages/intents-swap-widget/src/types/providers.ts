@@ -1,23 +1,46 @@
-import { NearWalletBase } from '@hot-labs/near-connect/build/types/wallet';
 import { Eip1193Provider } from 'ethers';
-import type {
-  PublicKey,
-  Transaction as SolanaWeb3Transaction,
-  VersionedTransaction,
-} from '@solana/web3.js';
+
+import type { NearWalletBase } from './near';
 
 export type EvmProvider = Eip1193Provider | (() => Promise<Eip1193Provider>);
 
-export type SolanaProvider = {
-  publicKey?: PublicKey;
+// The any is used here as the Solana transaction type can vary based on the
+// libraries used (e.g., web3.js, @solana/solana-web3.js). Without it, we would
+// need to duplicate some very complex types for each library or, inline one of
+// those libraries as a dependency, which we want to avoid in this package.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type SolanaProvider<TTransaction = any> = {
+  publicKey?: { toString(): string } | null;
   signMessage: (message: Uint8Array) => Promise<Uint8Array>;
-  signTransaction: <T extends SolanaWeb3Transaction | VersionedTransaction>(
-    transaction: T,
-  ) => Promise<T>;
+  signTransaction: (transaction: TTransaction) => Promise<TTransaction>;
+};
+
+export type StellarProvider = {
+  publicKey?: string;
+  signMessage: (
+    message: string,
+  ) => Promise<{ signedMessage: string; signerAddress: string | undefined }>;
+  signTransaction: (
+    tx: string,
+    options?: { networkPassphrase: string; address: string },
+  ) => Promise<
+    { signedTxXdr: string; signerAddress: string | undefined } | string
+  >;
+};
+
+export type WebAuthnProvider = {
+  /** Passkey public key as `p256:<base58 x‖y>` or `ed25519:<base58>`. */
+  publicKey: string;
+  /** Signs the challenge with the passkey (`navigator.credentials.get`). */
+  signChallenge: (
+    challenge: Uint8Array,
+  ) => Promise<AuthenticatorAssertionResponse>;
 };
 
 export type Providers = {
-  sol?: undefined | null | SolanaProvider;
   evm?: undefined | null | EvmProvider;
+  sol?: undefined | null | SolanaProvider;
+  stellar?: undefined | null | StellarProvider;
   near?: undefined | null | (() => NearWalletBase);
+  webauthn?: undefined | null | WebAuthnProvider;
 };

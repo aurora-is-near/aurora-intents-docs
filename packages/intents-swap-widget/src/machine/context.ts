@@ -1,4 +1,12 @@
 import type {
+  Quote,
+  QuoteDepositAnyAmount,
+  QuoteDry,
+  QuoteReal,
+} from '@/types/quote';
+import type { Token, TokenBalance } from '@/types/token';
+import type { Chains } from '@/types/chain';
+import type {
   InitialDryStateError,
   InitialExternalStateError,
   InitialInternalStateError,
@@ -6,9 +14,7 @@ import type {
   InputValidWalletError,
   QuoteSuccessError,
 } from './errors';
-import { DefaultToken } from '../types';
-import type { Quote, QuoteDry, QuoteReal } from '@/types/quote';
-import type { Token, TokenBalance } from '@/types/token';
+import { DefaultToken, SwapConfidentialMode } from '../types';
 
 export const initialContext: Readonly<InitialDryContext> = Object.freeze({
   state: 'initial_dry',
@@ -28,10 +34,14 @@ export const initialContext: Readonly<InitialDryContext> = Object.freeze({
   walletAddress: undefined,
   sendAddress: undefined,
   error: null,
+  unsupportedChain: null,
 
   quote: undefined,
   quoteStatus: 'idle' as const,
   transferStatus: { status: 'idle' as const },
+
+  confidentialMode: 'public',
+  maxSlippage: 100,
 });
 
 export type Context =
@@ -69,14 +79,19 @@ export type InitialDryContext = {
 
   sendAddress?: string;
   walletAddress?: string;
+  refundToAddress?: string;
   areInputsValidating: boolean;
   isDepositFromExternalWallet: boolean;
+  unsupportedChain: Chains | null;
   externalDepositTxReceived: boolean | undefined;
   error: InitialDryStateError | null;
 
   quote?: never;
   quoteStatus: 'idle';
   transferStatus: { status: 'idle' };
+
+  confidentialMode: SwapConfidentialMode;
+  maxSlippage: number;
 };
 
 export type InitialWalletContext = {
@@ -93,14 +108,19 @@ export type InitialWalletContext = {
 
   walletAddress: string;
   sendAddress: string | undefined;
+  refundToAddress?: never;
   areInputsValidating: boolean;
   isDepositFromExternalWallet: boolean;
+  unsupportedChain: Chains | null;
   externalDepositTxReceived: boolean | undefined;
   error: InitialInternalStateError | InitialExternalStateError | null;
 
   quote?: never;
   quoteStatus: 'idle';
   transferStatus: { status: 'idle' };
+
+  confidentialMode: SwapConfidentialMode;
+  maxSlippage: number;
 };
 
 export type InputValidDryContext = {
@@ -117,14 +137,19 @@ export type InputValidDryContext = {
 
   sendAddress?: string;
   walletAddress?: string;
+  refundToAddress?: never;
   areInputsValidating?: never;
   isDepositFromExternalWallet: boolean;
+  unsupportedChain: Chains | null;
   externalDepositTxReceived?: never;
   error: InputValidDryError | null;
 
   quote?: never;
   quoteStatus: 'idle' | 'pending' | 'error';
   transferStatus: { status: 'idle' };
+
+  confidentialMode: SwapConfidentialMode;
+  maxSlippage: number;
 };
 
 export type InputValidInternalContext = {
@@ -141,22 +166,40 @@ export type InputValidInternalContext = {
 
   sendAddress?: never;
   walletAddress: string;
+  refundToAddress?: never;
   areInputsValidating?: never;
   isDepositFromExternalWallet: boolean;
+  unsupportedChain: Chains | null;
   externalDepositTxReceived?: never;
   error: InputValidWalletError | null;
 
   quote?: never;
   quoteStatus: 'idle' | 'pending' | 'error';
   transferStatus: { status: 'idle' };
+
+  confidentialMode: SwapConfidentialMode;
+  maxSlippage: number;
 };
+
+type ExternalFlowWalletFields =
+  | {
+      isDepositFromExternalWallet: false;
+      sourceTokenBalance: TokenBalance;
+      refundToAddress?: never;
+      walletAddress: string;
+    }
+  | {
+      isDepositFromExternalWallet: true;
+      sourceTokenBalance?: TokenBalance;
+      refundToAddress?: string;
+      walletAddress?: string;
+    };
 
 export type InputValidExternalContext = {
   state: 'input_valid_external';
 
   sourceToken: Token;
   sourceTokenAmount: string;
-  sourceTokenBalance: TokenBalance;
   sourceTokenDefault: DefaultToken | undefined | null;
 
   targetToken: Token;
@@ -164,16 +207,18 @@ export type InputValidExternalContext = {
   targetTokenDefault: DefaultToken | undefined | null;
 
   sendAddress: string;
-  walletAddress: string;
   areInputsValidating?: never;
-  isDepositFromExternalWallet: boolean;
+  unsupportedChain: Chains | null;
   externalDepositTxReceived: boolean | undefined;
   error: InputValidWalletError | null;
 
   quote?: never;
   quoteStatus: 'idle' | 'pending' | 'error';
   transferStatus: { status: 'idle' };
-};
+
+  confidentialMode: SwapConfidentialMode;
+  maxSlippage: number;
+} & ExternalFlowWalletFields;
 
 export type QuoteSuccessDryContext = {
   state: 'quote_success_dry';
@@ -189,14 +234,19 @@ export type QuoteSuccessDryContext = {
 
   sendAddress?: never;
   walletAddress?: never;
+  refundToAddress?: never;
   areInputsValidating?: never;
   isDepositFromExternalWallet: boolean;
+  unsupportedChain: Chains | null;
   externalDepositTxReceived?: never;
   error: QuoteSuccessError | null;
 
   quote: QuoteDry;
   quoteStatus: 'success';
   transferStatus: { status: 'idle' };
+
+  confidentialMode: SwapConfidentialMode;
+  maxSlippage: number;
 };
 
 export type QuoteSuccessInternalContext = {
@@ -213,12 +263,17 @@ export type QuoteSuccessInternalContext = {
 
   sendAddress?: never;
   walletAddress: string;
+  refundToAddress?: never;
   areInputsValidating?: never;
   isDepositFromExternalWallet: boolean;
+  unsupportedChain: Chains | null;
   externalDepositTxReceived?: never;
   error: QuoteSuccessError | null;
 
-  quote: QuoteReal;
+  confidentialMode: SwapConfidentialMode;
+  maxSlippage: number;
+
+  quote: QuoteReal | QuoteDepositAnyAmount;
   quoteStatus: 'success';
   transferStatus:
     | { status: 'idle' | 'error'; reason: never }
@@ -230,7 +285,6 @@ export type QuoteSuccessExternalContext = {
 
   sourceToken: Token;
   sourceTokenAmount: string;
-  sourceTokenBalance: TokenBalance;
   sourceTokenDefault: DefaultToken | undefined | null;
 
   targetToken: Token;
@@ -238,39 +292,43 @@ export type QuoteSuccessExternalContext = {
   targetTokenDefault: DefaultToken | undefined | null;
 
   sendAddress: string;
-  walletAddress: string;
   areInputsValidating?: never;
-  isDepositFromExternalWallet: boolean;
+  unsupportedChain: Chains | null;
   externalDepositTxReceived: boolean | undefined;
   error: QuoteSuccessError | null;
 
   quote: QuoteReal;
   quoteStatus: 'success';
+
+  confidentialMode: SwapConfidentialMode;
+  maxSlippage: number;
+
   transferStatus:
     | { status: 'idle' | 'error'; reason: never }
     | { status: 'pending'; reason: string };
-};
+} & ExternalFlowWalletFields;
 
 export type TransferSuccessContext = {
   state: 'transfer_success';
 
   sourceToken: Token;
   sourceTokenAmount: string;
-  sourceTokenBalance: TokenBalance;
   sourceTokenDefault: DefaultToken | undefined | null;
 
   targetToken: Token;
   targetTokenAmount: string;
   targetTokenDefault: DefaultToken | undefined | null;
 
-  walletAddress: string;
   areInputsValidating?: never;
   sendAddress: string | undefined;
-  isDepositFromExternalWallet: boolean;
+  unsupportedChain: Chains | null;
   externalDepositTxReceived: boolean | undefined;
   error?: never;
 
   quote: Quote | undefined;
   quoteStatus: 'idle' | 'error' | 'pending' | 'success';
   transferStatus: { status: 'success'; reason: never };
-};
+
+  confidentialMode: SwapConfidentialMode;
+  maxSlippage: number;
+} & ExternalFlowWalletFields;

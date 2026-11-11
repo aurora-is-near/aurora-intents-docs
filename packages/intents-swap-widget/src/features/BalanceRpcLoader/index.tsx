@@ -1,13 +1,17 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 
-import { TokenBalanceLoader } from './TokenBalanceLoader';
-import { useAllTokens } from '../../hooks/useAllTokens';
-import { useSupportedChains } from '../../hooks/useSupportedChains';
-import { useConfig } from '../../config';
+import { useUnsafeSnapshot } from '@/machine/snap';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
+import { isStellarAddress } from '@/utils/chains/isStellarAddress';
 import { getTokenBalanceKey } from '@/utils/intents/getTokenBalanceKey';
+import { getStellarWalletBalances } from '@/utils/stellar/getStellarWalletBalances';
 import type { ChainRpcUrls } from '@/types/chain';
 import type { Token, TokenBalances } from '@/types/token';
+import { useConfig } from '../../config';
+import { useSupportedChains } from '../../hooks/useSupportedChains';
+import { useAllTokens } from '../../hooks/useAllTokens';
+import { TokenBalanceLoader } from './TokenBalanceLoader';
+import { getBalanceSourceForChain } from './getBalanceSourceForChain';
 
 type Props = {
   rpcs: ChainRpcUrls;
@@ -65,11 +69,37 @@ const sortTokensByPriority = (tokens: ReadonlyArray<Token>) => {
 };
 
 export const BalanceRpcLoader = ({ rpcs }: Props) => {
-  const { connectedWallets } = useConfig();
+  const { alchemyApiKey, connectedWallets, providers, plugins } = useConfig();
   const { tokens } = useAllTokens();
   const { supportedChains } = useSupportedChains();
+  const { ctx } = useUnsafeSnapshot();
   const { setWalletBalance } = useWalletBalance(connectedWallets);
   const sortedTokens = useMemo(() => sortTokensByPriority(tokens), [tokens]);
+
+  useEffect(() => {
+    const stellarProvider = providers?.stellar;
+    const stellarPlugin = plugins?.stellar;
+
+    if (
+      ctx.walletAddress &&
+      supportedChains.includes('stellar') &&
+      isStellarAddress(ctx.walletAddress) &&
+      stellarProvider &&
+      stellarPlugin
+    ) {
+      void getStellarWalletBalances(stellarProvider, stellarPlugin).then(
+        (balances) => {
+          setWalletBalance(connectedWallets, balances);
+        },
+      );
+    }
+  }, [
+    supportedChains,
+    ctx.walletAddress,
+    connectedWallets,
+    providers,
+    plugins,
+  ]);
 
   const onBalancesLoaded = useCallback(
     (balance: TokenBalances) => {
@@ -80,6 +110,26 @@ export const BalanceRpcLoader = ({ rpcs }: Props) => {
 
   return sortedTokens.map((tkn) => {
     if (supportedChains.includes(tkn.blockchain)) {
+      const balanceSource = getBalanceSourceForChain({
+        alchemyApiKey,
+        chain: tkn.blockchain,
+        rpcs,
+      });
+
+      if (balanceSource === 'alchemy') {
+        return null;
+      }
+
+      if (balanceSource === 'none') {
+        return (
+          <TokenBalanceLoader.Zero
+            token={tkn}
+            key={getTokenBalanceKey(tkn)}
+            onBalancesLoaded={onBalancesLoaded}
+          />
+        );
+      }
+
       return (
         <TokenBalanceLoader
           rpcs={rpcs}
@@ -93,7 +143,6 @@ export const BalanceRpcLoader = ({ rpcs }: Props) => {
 
     return (
       <TokenBalanceLoader.Zero
-        rpcs={rpcs}
         token={tkn}
         key={getTokenBalanceKey(tkn)}
         onBalancesLoaded={onBalancesLoaded}

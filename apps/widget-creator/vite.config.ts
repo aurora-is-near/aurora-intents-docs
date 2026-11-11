@@ -3,11 +3,30 @@ import react from '@vitejs/plugin-react';
 import svgr from 'vite-plugin-svgr';
 import { Plugin } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
-import vercel from 'vite-plugin-vercel';
 import path from 'path';
 
 export default defineConfig({
-  plugins: [react(), svgr({}), nodePolyfills(), vercel()] as Plugin[],
+  plugins: [
+    {
+      name: 'full-reload-on-package-dist',
+      handleHotUpdate({ file, server }) {
+        if (file.includes('packages/intents-swap-widget/dist/index.js')) {
+          server.ws.send({ type: 'full-reload' });
+          return [];
+        }
+      },
+    },
+    react(),
+    svgr({}),
+    nodePolyfills({
+      include: ['crypto', 'buffer', 'process', 'util'],
+      globals: {
+        Buffer: true,
+        global: true,
+        process: true,
+      },
+    }),
+  ] as Plugin[],
   css: {
     postcss: './postcss.config.cjs',
     modules: false,
@@ -17,6 +36,13 @@ export default defineConfig({
   },
   server: {
     port: 5175,
+    proxy: {
+      '/api/one-click-status': {
+        target: 'https://status.near-intents.org',
+        changeOrigin: true,
+        rewrite: () => '/api/posts?is_featured=true',
+      },
+    },
     fs: {
       allow: ['..'],
     },
@@ -27,9 +53,36 @@ export default defineConfig({
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
       'Access-Control-Allow-Headers': '*',
     },
+    watch: {
+      ignored: [
+        // ignore everything in the package dist EXCEPT the main entry file
+        (path: string) => {
+          if (
+            path.includes('node_modules/@aurora-is-near/intents-swap-widget')
+          ) {
+            return !path.endsWith('dist/index.js');
+          }
+          return false;
+        },
+      ],
+      awaitWriteFinish: {
+        stabilityThreshold: 500,
+        pollInterval: 100,
+      },
+    },
   },
   build: {
     outDir: 'dist',
+    target: 'esnext',
+    reportCompressedSize: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          privy: ['@privy-io/react-auth'],
+          prism: ['prism-react-renderer'],
+        },
+      },
+    },
   },
 
   // Due to @near-js versions mismatch across hot wallet and intents sdk

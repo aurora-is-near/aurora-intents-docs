@@ -1,21 +1,52 @@
-import { useConfig } from '@/config';
-import { Card } from '@/components/Card';
-import { Notes } from '@/components/Notes';
-import { useTypedTranslation } from '@/localisation';
-import { useComputedSnapshot, useUnsafeSnapshot } from '@/machine/snap';
-import { formatBigToHuman } from '@/utils/formatters/formatBigToHuman';
+import { useMemo } from 'react';
 
-export const DepositSummary = () => {
+import { Badge } from '@/components/Badge';
+import { Notes } from '@/components/Notes';
+import { FeeValue } from '@/components/FeeValue';
+import { Accordion } from '@/components/Accordion';
+import { TinyNumber } from '@/components/TinyNumber';
+import { useTypedTranslation } from '@/localisation';
+import { useUnsafeSnapshot } from '@/machine/snap';
+import { formatBigToHuman } from '@/utils/formatters/formatBigToHuman';
+import { formatTinyNumber } from '@/utils/formatters/formatTinyNumber';
+import { formatUsdAmount } from '@/utils/formatters/formatUsdAmount';
+import { getAppFeesPercent } from '@/utils/getAppFeesPercent';
+import { getAppFeesUsd } from '@/utils/getAppFeesUsd';
+
+type Msg = { type: 'on_click_edit_slippage' };
+
+type Props = {
+  onMsg: (msg: Msg) => void;
+};
+
+export const DepositSummary = ({ onMsg }: Props) => {
   const { t } = useTypedTranslation();
   const { ctx } = useUnsafeSnapshot();
-  const { slippageTolerance } = useConfig();
-  const { isDirectNearTokenWithdrawal } = useComputedSnapshot();
+
+  const feesPercent = getAppFeesPercent(ctx.quote?.appFees);
+  const feesUsd = ctx.isDepositFromExternalWallet
+    ? null
+    : getAppFeesUsd({
+        appFees: ctx.quote?.appFees,
+        swapType: ctx.quote?.swapType,
+        amountInUsd:
+          ctx.quote && 'amountInUsd' in ctx.quote
+            ? ctx.quote.amountInUsd
+            : undefined,
+      });
 
   const getDepositAmount = () => {
     let amount: string | undefined;
 
     if (ctx.quote) {
-      amount = formatBigToHuman(ctx.quote.amountOut, ctx.sourceToken.decimals);
+      if (ctx.quote.type !== 'QUOTE_DEPOSIT_ANY_AMOUNT') {
+        amount = formatBigToHuman(
+          ctx.quote.amountOut,
+          ctx.sourceToken.decimals,
+        );
+      } else if (ctx.quote.type === 'QUOTE_DEPOSIT_ANY_AMOUNT') {
+        return `any amount of ${ctx.sourceToken.symbol}`;
+      }
     }
 
     if (!ctx.sourceTokenAmount || ctx.sourceTokenAmount === '0') {
@@ -36,38 +67,79 @@ export const DepositSummary = () => {
     return '—';
   };
 
-  const getProcessingTime = () => {
-    if (ctx.quote) {
-      return `${ctx.quote.timeEstimate} sec.`;
+  const price =
+    ctx.sourceToken &&
+    ctx.targetToken &&
+    ctx.sourceToken.price / ctx.targetToken.price;
+
+  const detailsTitle = (() => {
+    if (
+      !ctx.quote ||
+      !ctx.sourceToken ||
+      !ctx.targetToken ||
+      ctx.quote.type === 'QUOTE_DEPOSIT_ANY_AMOUNT' ||
+      ctx.sourceToken.symbol === ctx.targetToken.symbol
+    ) {
+      return t('deposit.summary.title', 'Transaction details');
     }
 
-    if (isDirectNearTokenWithdrawal) {
-      return '1 sec.';
+    return ctx.isDepositFromExternalWallet ? (
+      <span style={{ borderBottomWidth: '2px', borderStyle: 'dotted' }}>
+        {`1 ${ctx.sourceToken.symbol} ≈ `}
+        {formatTinyNumber(price ?? 0)} {`${ctx.targetToken.symbol}`}
+        <span className="text-sw-gray-50">{` (${formatUsdAmount(ctx.sourceToken.price)})`}</span>
+      </span>
+    ) : (
+      <span style={{ borderBottomWidth: '2px', borderStyle: 'dotted' }}>
+        {`${getDepositAmount()} ≈ `}{' '}
+        <TinyNumber
+          value={ctx.quote.amountOut}
+          decimals={ctx.targetToken.decimals}
+        />{' '}
+        {`${ctx.targetToken.symbol}`}
+        <span className="text-sw-gray-50">{` (${formatUsdAmount(parseFloat(ctx.quote.amountOutUsd))})`}</span>
+      </span>
+    );
+  })();
+
+  const accordionHeight = useMemo(() => {
+    if (feesPercent !== null) {
+      return 92;
     }
 
-    return '—';
-  };
+    return 71;
+  }, [ctx.walletAddress, ctx.quote, ctx.walletAddress]);
 
   return (
-    <Card className="flex flex-col gap-sw-2xl">
-      <span className="text-sw-label-md text-sw-gray-50">
-        {t('deposit.summary.title', 'Summary')}
-      </span>
+    <Accordion
+      expandedByDefault={false}
+      expandedHeightPx={accordionHeight}
+      isBadgeLoading={ctx.quoteStatus === 'pending'}
+      badge={ctx.quote ? `~ ${ctx.quote.timeEstimate ?? 0} sec` : undefined}
+      className="rounded-sw-md py-sw-lg px-sw-2xl"
+      title={detailsTitle}>
       <Notes>
         <Notes.Item
           label={t('deposit.summary.youWillDeposit.label', 'You will deposit')}
           value={getDepositAmount()}
         />
+        {!!feesPercent && (
+          <Notes.Item
+            label={t('quote.result.fees.label', 'Fees')}
+            value={<FeeValue feesPercent={feesPercent} feesUsd={feesUsd} />}
+          />
+        )}
         <Notes.Item
           label={t('quote.result.maxSlippage.label', 'Max slippage')}
-          value={`${(slippageTolerance / 100).toFixed(2)}%`}
-        />
-        <Notes.Item
-          isLoading={ctx.quoteStatus === 'pending'}
-          label={t('quote.result.processingTime.label', 'Processing time')}
-          value={getProcessingTime()}
+          value={
+            <Badge
+              isClickable
+              onClick={() =>
+                onMsg({ type: 'on_click_edit_slippage' })
+              }>{`${(ctx.maxSlippage / 100).toFixed(2)}%`}</Badge>
+          }
         />
       </Notes>
-    </Card>
+    </Accordion>
   );
 };

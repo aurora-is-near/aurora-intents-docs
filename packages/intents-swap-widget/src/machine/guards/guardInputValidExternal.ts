@@ -1,9 +1,10 @@
+import { isNotEmptyAmount } from '@/utils/checkers/isNotEmptyAmount';
+import type { Context, InputValidExternalContext } from '@/machine/context';
 import { isSendAddressValid } from './checks/isSendAddressValid';
 import { isBalanceSufficient } from './checks/isBalanceSufficient';
-import { isNotEmptyAmount } from '@/utils/checkers/isNotEmptyAmount';
+import { isRefundAddressValid } from './checks/isRefundAddressValid';
 
-import type { Context, InputValidExternalContext } from '@/machine/context';
-
+// External -- target token IS NOT intent
 export const guardInputValidExternal = (
   ctx: Context,
 ): ctx is InputValidExternalContext => {
@@ -12,12 +13,13 @@ export const guardInputValidExternal = (
     ctx.quoteStatus !== 'success' &&
     ctx.transferStatus.status === 'idle' &&
     !!ctx.sendAddress &&
-    !!ctx.walletAddress &&
+    (!!ctx.walletAddress || ctx.isDepositFromExternalWallet) &&
+    isRefundAddressValid(ctx) &&
     !!ctx.sourceToken &&
     !!ctx.targetToken &&
     !ctx.targetToken.isIntent &&
+    isSendAddressValid(ctx) &&
     (isBalanceSufficient(ctx) || ctx.isDepositFromExternalWallet) &&
-    isNotEmptyAmount(ctx.sourceTokenAmount) &&
-    isSendAddressValid(ctx)
+    (isNotEmptyAmount(ctx.sourceTokenAmount) || ctx.isDepositFromExternalWallet)
   );
 };

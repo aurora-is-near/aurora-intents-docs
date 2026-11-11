@@ -1,16 +1,17 @@
-import { useChains } from './useChains';
-import { useTokens } from './useTokens';
-import { useMergedBalance } from './useMergedBalance';
-import { useIntentsBalance } from './useIntentsBalance';
-import { useTokensIntentsUnique } from './useTokensIntentsUnique';
-import { isAllowedChain } from '../utils/chains/isAllowedChain';
-import { useConfig } from '../config';
 import { createTokenSorter } from '@/utils/tokens/sort';
 import { createFilterByIntents } from '@/utils/tokens/filterByIntents';
 import { createFilterBySearch } from '@/utils/tokens/filterBySearchString';
 import { createFilterBySelectedChain } from '@/utils/tokens/filterBySelectedChain';
 import type { Chains, ChainsFilter } from '@/types/chain';
 import type { PriorityAssets } from '@/types/config';
+import { useChains } from './useChains';
+import { useTokens } from './useTokens';
+import { useMergedBalance } from './useMergedBalance';
+import { useIntentsBalance } from './useIntentsBalance';
+import { useTokensIntentsUnique } from './useTokensIntentsUnique';
+import { useTokenVolumeStats } from './useTokenVolumeStats';
+import { isAllowedChain } from '../utils/chains/isAllowedChain';
+import { useConfig } from '../config';
 
 export type TokensFilterOptions = {
   variant: 'source' | 'target';
@@ -31,10 +32,11 @@ export const useTokensFiltered = ({
   priorityAssets,
 }: TokensFilterOptions) => {
   const chains = useChains(variant);
-  const { tokens } = useTokens(variant);
+  const { tokens } = useTokens({ variant });
   const { mergedBalance } = useMergedBalance();
   const { intentBalances } = useIntentsBalance();
   const { uniqueIntentsTokens } = useTokensIntentsUnique();
+  const { volumeRank } = useTokenVolumeStats();
   const {
     allowedChainsList,
     allowedSourceChainsList,
@@ -44,6 +46,7 @@ export const useTokensFiltered = ({
   const sorter = createTokenSorter(
     mergedBalance,
     supportedChains,
+    volumeRank,
     search,
     priorityAssets,
   );
@@ -57,17 +60,26 @@ export const useTokensFiltered = ({
         chainsFilter,
         supportedChains,
         intentBalances,
+        walletBalances: mergedBalance,
         uniqueIntentTokenIds: uniqueIntentsTokens.map((t) => t.assetId),
       }),
     )
-    .filter((token) =>
-      isAllowedChain({
-        chainId: token.blockchain,
-        variant,
-        allowedChainsList,
-        allowedSourceChainsList,
-        allowedTargetChainsList,
-      }),
+    // Intents tokens are the virtual NEAR Intents account layer, not an external
+    // settlement network, so they must not be gated on their underlying
+    // `blockchain` being in `allowedChainsList` — otherwise deselecting e.g. the
+    // Near network in the configurator hides held Intents balances. Intents-specific
+    // gating lives in `createFilterBySelectedChain` (chainsFilter.intents /
+    // selectedChain).
+    .filter(
+      (token) =>
+        token.isIntent ||
+        isAllowedChain({
+          chainId: token.blockchain,
+          variant,
+          allowedChainsList,
+          allowedSourceChainsList,
+          allowedTargetChainsList,
+        }),
     );
 
   return {

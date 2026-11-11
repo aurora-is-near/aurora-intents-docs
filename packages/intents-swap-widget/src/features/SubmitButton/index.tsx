@@ -1,18 +1,32 @@
 import { Trans } from 'react-i18next';
+import WalletPlusIcon from 'reicon-react/icons/WalletPlus';
 import { OpenInNewW700 as OpenInNew } from '@material-symbols-svg/react-rounded/icons/open-in-new';
+import type { FC } from 'react';
 
+import { logger } from '@/logger';
 import { useConfig } from '@/config';
+import { fireEvent } from '@/machine';
+import { useTypedTranslation } from '@/localisation';
+
+import type { MakeTransfer, TransferResult } from '@/types/transfer';
+
 import { Button } from '@/components/Button';
 import { TinyNumber } from '@/components/TinyNumber';
-import { ErrorMessage } from '@/components/ErrorMessage';
+import { StatusMessage } from '@/components/StatusMessage';
+
 import { useComputedSnapshot, useUnsafeSnapshot } from '@/machine/snap';
-import { useTypedTranslation } from '@/localisation';
-import { useWalletConnection } from '@/hooks/useWalletConnection';
-import { useMakeTransfer } from '@/hooks/useMakeTransfer';
-import { useSwitchChain } from '@/hooks/useSwitchChain';
-import { isNotEmptyAmount } from '@/utils/checkers/isNotEmptyAmount';
-import type { MakeTransfer, TransferResult } from '@/types/transfer';
 import type { Context } from '@/machine/context';
+import { isBalanceSufficient } from '@/machine/guards/checks/isBalanceSufficient';
+
+import { useSwitchChain } from '@/hooks/useSwitchChain';
+import { useMakeTransfer } from '@/hooks/useMakeTransfer';
+import { useWalletConnection } from '@/hooks/useWalletConnection';
+
+import { isNotEmptyAmount } from '@/utils/checkers/isNotEmptyAmount';
+import {
+  isFullGasTokenAmount,
+  isNearlyFullGasTokenAmount,
+} from '@/utils/checkers/isFullGasTokenAmount';
 
 type Props = {
   label: string;
@@ -25,9 +39,31 @@ const commonBtnProps = {
   variant: 'primary' as const,
 };
 
+const isSourceBalanceInsufficient = (ctx: Context): boolean =>
+  !ctx.isDepositFromExternalWallet &&
+  !!ctx.sourceToken &&
+  isNotEmptyAmount(ctx.sourceTokenAmount) &&
+  isNotEmptyAmount(ctx.sourceTokenBalance) &&
+  !isBalanceSufficient(ctx);
+
 const useGetErrorButton = (ctx: Context) => {
-  const { apiKey, fetchQuote } = useConfig();
+  const { apiKey, sendAddress, fetchQuote } = useConfig();
   const { t } = useTypedTranslation();
+
+  if (
+    !!sendAddress &&
+    ctx.sendAddress !== sendAddress &&
+    ctx.state === 'quote_success_external'
+  ) {
+    return (
+      <Button state="error" {...commonBtnProps}>
+        {t(
+          'submit.error.sendToAddressOverridden',
+          'Overridden recipient address',
+        )}
+      </Button>
+    );
+  }
 
   if (ctx.error?.code === 'TOKEN_IS_NOT_SUPPORTED') {
     return (
@@ -38,7 +74,7 @@ const useGetErrorButton = (ctx: Context) => {
   }
 
   if (
-    ctx.state === 'initial_wallet' &&
+    (ctx.state === 'initial_wallet' || ctx.state === 'initial_dry') &&
     ctx.error?.code === 'SEND_ADDRESS_IS_EMPTY'
   ) {
     return (
@@ -49,7 +85,7 @@ const useGetErrorButton = (ctx: Context) => {
   }
 
   if (
-    ctx.state === 'initial_wallet' &&
+    (ctx.state === 'initial_wallet' || ctx.state === 'initial_dry') &&
     ctx.error?.code === 'SEND_ADDRESS_IS_NOT_FOUND'
   ) {
     return (
@@ -63,7 +99,7 @@ const useGetErrorButton = (ctx: Context) => {
   }
 
   if (
-    ctx.state === 'initial_wallet' &&
+    (ctx.state === 'initial_wallet' || ctx.state === 'initial_dry') &&
     ctx.error?.code === 'SEND_ADDRESS_IS_INVALID'
   ) {
     return (
@@ -77,6 +113,28 @@ const useGetErrorButton = (ctx: Context) => {
   }
 
   if (
+    (ctx.state === 'initial_wallet' || ctx.state === 'initial_dry') &&
+    ctx.error?.code === 'REFUND_ADDRESS_IS_EMPTY'
+  ) {
+    return (
+      <Button state="disabled" {...commonBtnProps}>
+        {t('submit.error.refundAddressEmpty', 'Enter refund address')}
+      </Button>
+    );
+  }
+
+  if (
+    (ctx.state === 'initial_wallet' || ctx.state === 'initial_dry') &&
+    ctx.error?.code === 'REFUND_ADDRESS_IS_INVALID'
+  ) {
+    return (
+      <Button state="error" {...commonBtnProps}>
+        {t('submit.error.refundAddressInvalid', 'Invalid refund address')}
+      </Button>
+    );
+  }
+
+  if (
     ctx.error?.code === 'QUOTE_AMOUNT_IS_TOO_LOW' ||
     ctx.error?.code === 'MIN_WITHDRAWAL_AMOUNT_ERROR'
   ) {
@@ -85,7 +143,7 @@ const useGetErrorButton = (ctx: Context) => {
         <Button state="error" {...commonBtnProps}>
           {t('submit.error.amountTooLow.label', 'Amount is too low')}
         </Button>
-        <ErrorMessage>
+        <StatusMessage>
           <Trans i18nKey="submit.error.amountTooLow.message">
             Amount you entered is very low. Please try increasing it{' '}
             <span className="text-nowrap">
@@ -93,7 +151,7 @@ const useGetErrorButton = (ctx: Context) => {
               {ctx.sourceToken?.symbol ?? ''}.
             </span>
           </Trans>
-        </ErrorMessage>
+        </StatusMessage>
       </div>
     );
   }
@@ -104,29 +162,52 @@ const useGetErrorButton = (ctx: Context) => {
         <Button state="error" {...commonBtnProps}>
           {t('submit.error.apiKeyInvalid', 'Invalid API key')}
         </Button>
-        <ErrorMessage>
+        <StatusMessage>
           {t(
             'submit.error.apiKeyInvalid.message',
             'Please contact support if the problem persists.',
           )}
-        </ErrorMessage>
+        </StatusMessage>
       </div>
     );
   }
 
   // other quote errors
   if (ctx.quoteStatus === 'error') {
+    if (ctx.error?.code === 'QUOTE_PAIR_NOT_AVAILABLE') {
+      return (
+        <div className="gap-sw-md flex flex-col">
+          <Button state="disabled" {...commonBtnProps}>
+            {t('submit.error.quoteFailed.noPair.label', 'Pair not available')}
+          </Button>
+          <StatusMessage state="warning">
+            <Trans i18nKey="submit.error.quoteFailed.noPair.message">
+              We couldn’t finalize your quote. Check{' '}
+              <a
+                href="https://partners.near-intents.org/shield/status"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline">
+                status page
+              </a>{' '}
+              for details or try again or adjust your values.
+            </Trans>
+          </StatusMessage>
+        </div>
+      );
+    }
+
     return (
       <div className="gap-sw-md flex flex-col">
         <Button state="error" {...commonBtnProps}>
           {t('submit.error.quoteFailed.label', 'Quote failed')}
         </Button>
-        <ErrorMessage>
+        <StatusMessage>
           {t(
             'submit.error.quoteFailed.message',
             'We couldn’t finalize your quote. Please try again or adjust your values.',
           )}
-        </ErrorMessage>
+        </StatusMessage>
       </div>
     );
   }
@@ -139,7 +220,7 @@ const useGetErrorButton = (ctx: Context) => {
           {t('submit.error.invalidTransferData.label', 'Invalid transfer data')}
         </Button>
         {ctx.error.meta?.message ? (
-          <ErrorMessage>{ctx.error.meta.message}</ErrorMessage>
+          <StatusMessage>{ctx.error.meta.message}</StatusMessage>
         ) : null}
       </div>
     );
@@ -153,18 +234,22 @@ const useGetErrorButton = (ctx: Context) => {
     );
   }
 
+  // An incomplete deposit is refunded and leaves nothing to recover, so the way
+  // out is a new deposit address rather than a dead error button.
   if (ctx.error?.code === 'EXTERNAL_TRANSFER_INCOMPLETE') {
     return (
       <div className="gap-sw-md flex flex-col">
-        <Button state="error" {...commonBtnProps}>
-          {t('submit.error.externalTransferFailed.label', 'Transfer failed')}
+        <Button
+          {...commonBtnProps}
+          onClick={() => fireEvent('retryExternalDeposit', null)}>
+          {t('submit.error.externalTransferFailed.retry', 'Get another quote')}
         </Button>
-        <ErrorMessage>
+        <StatusMessage>
           {t(
             'submit.error.externalTransferFailed.incompleteMessage',
             'Incomplete transfer. Deposited amount will be refunded.',
           )}
-        </ErrorMessage>
+        </StatusMessage>
       </div>
     );
   }
@@ -175,12 +260,12 @@ const useGetErrorButton = (ctx: Context) => {
         <Button state="error" {...commonBtnProps}>
           {t('submit.error.externalTransferFailed.label', 'Transfer failed')}
         </Button>
-        <ErrorMessage>
+        <StatusMessage>
           {t(
             'submit.error.externalTransferFailed.refundedMessage',
             'Deposited amount will be refunded.',
           )}
-        </ErrorMessage>
+        </StatusMessage>
       </div>
     );
   }
@@ -192,13 +277,16 @@ const useGetErrorButton = (ctx: Context) => {
           {t('submit.error.transferFailed.label', 'Transfer failed')}
         </Button>
         {ctx.error.meta?.message ? (
-          <ErrorMessage>{ctx.error.meta.message}</ErrorMessage>
+          <StatusMessage>{ctx.error.meta.message}</StatusMessage>
         ) : null}
       </div>
     );
   }
 
-  if (ctx.error?.code === 'SOURCE_BALANCE_INSUFFICIENT') {
+  if (
+    ctx.error?.code === 'SOURCE_BALANCE_INSUFFICIENT' ||
+    isSourceBalanceInsufficient(ctx)
+  ) {
     return (
       <Button state="error" {...commonBtnProps}>
         {t('submit.error.insufficientBalance', 'Insufficient balance')}
@@ -218,28 +306,28 @@ const useGetErrorButton = (ctx: Context) => {
         <Button state="error" {...commonBtnProps}>
           {t('submit.error.apiKeyRequired', 'API key is required')}
         </Button>
-        <ErrorMessage>
+        <StatusMessage>
           <Trans i18nKey="submit.error.apiKeyRequired.message">
             Visit{' '}
             <span className="inline-flex items-center gap-sw-xs px-sw-xs">
               <a
                 className="underline"
-                href="https://intents.aurora.dev"
+                href="https://studio.aurora.dev"
                 rel="noopener noreferrer"
                 target="_blank">
-                intents.aurora.dev
+                studio.aurora.dev
               </a>
               <OpenInNew size={12} />
             </span>{' '}
             to get your app key.
           </Trans>
-        </ErrorMessage>
+        </StatusMessage>
       </div>
     );
   }
 };
 
-const SubmitButtonError = () => {
+const SubmitButtonError: FC = () => {
   const { ctx } = useUnsafeSnapshot();
 
   return useGetErrorButton(ctx) ?? null;
@@ -247,39 +335,37 @@ const SubmitButtonError = () => {
 
 const ConnectWalletButton = () => {
   const { t } = useTypedTranslation();
-  const { ctx } = useUnsafeSnapshot();
   const { walletSignIn } = useWalletConnection();
-
-  const SubmitErrorButton = useGetErrorButton(ctx);
-
-  if (SubmitErrorButton) {
-    return SubmitErrorButton;
-  }
 
   return (
     <Button
       state={walletSignIn ? 'default' : 'disabled'}
       {...commonBtnProps}
-      onClick={walletSignIn}>
+      onClick={walletSignIn}
+      icon={WalletPlusIcon}>
       {t('submit.error.connectWallet', 'Connect wallet')}
     </Button>
   );
 };
 
 const SubmitButtonBase = (props: Props) => {
-  const { providers } = useConfig();
+  const { providers, plugins } = useConfig();
 
   const { makeTransfer, onSuccess } = props;
   const { ctx } = useUnsafeSnapshot();
   const { t } = useTypedTranslation();
   const {
     isNativeNearDeposit,
-    isDirectNonNearWithdrawal,
     isDirectTokenOnNearDeposit,
     isDirectNearTokenWithdrawal,
   } = useComputedSnapshot();
 
-  const { make } = useMakeTransfer({ providers, makeTransfer });
+  const { make } = useMakeTransfer({
+    providers,
+    plugins,
+    makeTransfer,
+  });
+
   const { isSwitchingChainRequired, switchChain, isSwitchingChain } =
     useSwitchChain({ providers });
 
@@ -295,12 +381,22 @@ const SubmitButtonBase = (props: Props) => {
       }
     }
 
-    const transferResult = await make();
+    let transferResult: TransferResult | undefined;
+
+    try {
+      transferResult = await make();
+    } catch (error) {
+      logger.error('Unexpected error during submit', error);
+    }
 
     if (transferResult) {
       onSuccess(transferResult);
     }
   };
+
+  if (isSourceBalanceInsufficient(ctx)) {
+    return SubmitErrorButton;
+  }
 
   if (!ctx.targetToken) {
     return (
@@ -364,7 +460,7 @@ const SubmitButtonBase = (props: Props) => {
     return (
       <div className="gap-sw-md flex flex-col">
         <Button {...commonBtnProps}>{props.label}</Button>
-        <ErrorMessage>
+        <StatusMessage>
           {(() => {
             switch (ctx.error?.code) {
               case 'FEES_NOT_ESTIMATED':
@@ -372,6 +468,19 @@ const SubmitButtonBase = (props: Props) => {
                   'submit.error.transfer.noFees',
                   'Transfer fees could not be estimated.',
                 );
+              case 'QUOTE_ERROR':
+                return ctx.error.meta.message;
+              case 'TRANSFER_REJECTED_UNKNOWN':
+                return isFullGasTokenAmount(ctx)
+                  ? t('submit.error.transfer.rejectedFullGasBalance', {
+                      defaultValue:
+                        'Your wallet rejected the transfer. Leave some {{symbol}} to cover the network fee.',
+                      symbol: ctx.sourceToken?.symbol,
+                    })
+                  : t(
+                      'submit.error.transfer.rejectedUnknown',
+                      'Your wallet rejected the transfer.',
+                    );
               default:
                 return t(
                   'submit.error.transfer.failed',
@@ -379,7 +488,7 @@ const SubmitButtonBase = (props: Props) => {
                 );
             }
           })()}
-        </ErrorMessage>
+        </StatusMessage>
       </div>
     );
   }
@@ -404,7 +513,6 @@ const SubmitButtonBase = (props: Props) => {
 
   if (
     !ctx.quote &&
-    !isDirectNonNearWithdrawal &&
     !isDirectTokenOnNearDeposit &&
     !isDirectNearTokenWithdrawal &&
     !isNativeNearDeposit
@@ -429,12 +537,41 @@ const SubmitButtonWithWallet = (props: Props) => {
   const { ctx } = useUnsafeSnapshot();
   const errorButton = useGetErrorButton(ctx);
 
-  // 1. External deposit (QR code) mode? Show waiting/processing state
+  // 1. Has errors? Show error button
+  if (errorButton) {
+    return errorButton;
+  }
+
+  // 2. External deposit (QR code) mode? Show waiting/processing state
   if (ctx.isDepositFromExternalWallet) {
-    if (!isNotEmptyAmount(ctx.sourceTokenAmount)) {
+    if (!ctx.sourceToken) {
       return (
         <Button {...commonBtnProps} state="disabled">
-          {t('submit.disabled.enterAmount', 'Enter amount')}
+          {t('submit.disabled.selectTokenToDeposit', 'Select token to deposit')}
+        </Button>
+      );
+    }
+
+    if (!ctx.targetToken) {
+      return (
+        <Button {...commonBtnProps} state="disabled">
+          {t('submit.disabled.selectTokenToReceive', 'Select token to receive')}
+        </Button>
+      );
+    }
+
+    if (!ctx.walletAddress && !ctx.refundToAddress) {
+      return (
+        <Button {...commonBtnProps} state="disabled">
+          {t('submit.error.refundAddressEmpty', 'Enter refund address')}
+        </Button>
+      );
+    }
+
+    if (!ctx.quote) {
+      return (
+        <Button {...commonBtnProps} state="loading">
+          {t('submit.disabled.waitingForQuote', 'Waiting for a quote')}
         </Button>
       );
     }
@@ -454,13 +591,25 @@ const SubmitButtonWithWallet = (props: Props) => {
     );
   }
 
-  // 2. Has errors? Show error button
-  if (errorButton) {
-    return errorButton;
+  if (!ctx.sourceToken) {
+    return <SubmitButtonBase {...props} />;
   }
 
   // 3. All good - show active button
-  return <SubmitButtonBase {...props} />;
+  return isNearlyFullGasTokenAmount(ctx) ? (
+    <div className="gap-sw-md flex flex-col">
+      <SubmitButtonBase {...props} />
+      <StatusMessage state="warning">
+        {t('submit.warning.balanceMax.message', {
+          symbol: ctx.sourceToken.symbol.toUpperCase(),
+          defaultValue:
+            'Make sure you keep enough {{symbol}} in your wallet to cover the network fee.',
+        })}
+      </StatusMessage>
+    </div>
+  ) : (
+    <SubmitButtonBase {...props} />
+  );
 };
 
 // Performant wrapper - minimal logic when no wallet, full logic when connected
@@ -468,7 +617,7 @@ const SubmitButton = (props: Props) => {
   const { ctx } = useUnsafeSnapshot();
 
   // 1. No wallet? Return lightweight button immediately (best performance)
-  if (!ctx.walletAddress) {
+  if (!ctx.walletAddress && !ctx.isDepositFromExternalWallet) {
     return <ConnectWalletButton />;
   }
 

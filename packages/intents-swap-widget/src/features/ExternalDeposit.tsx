@@ -1,50 +1,169 @@
-import { useEffect } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
+import { useCallback, useEffect, useRef } from 'react';
+import QRCodeStyling from 'qr-code-styling';
 import { GetExecutionStatusResponse } from '@defuse-protocol/one-click-sdk-typescript';
 import { ProgressActivityW700 as ProgressActivity } from '@material-symbols-svg/react-rounded/icons/progress-activity';
 
 import { notReachable } from '@/utils';
-import { CHAIN_IDS_MAP } from '@/constants/chains';
 import { useExternalDepositStatus } from '@/hooks';
 import { useTypedTranslation } from '@/localisation';
-import { CopyButton, StatusWidget } from '@/components';
-import {
-  fireEvent,
-  guardStates,
-  moveTo,
-  useComputedSnapshot,
-  useUnsafeSnapshot,
-} from '@/machine';
+import { Banner, CopyButton, StatusWidget } from '@/components';
+import { AURORA_BASE64_LOGO } from '@/constants/chains';
+import { fireEvent, guardStates, moveTo, useUnsafeSnapshot } from '@/machine';
+import { useMergedBalance } from '@/hooks/useMergedBalance';
+import { useBalancesUpdate } from '@/context/BalancesUpdateContext';
+import { getTokenBalanceKey } from '@/utils/intents/getTokenBalanceKey';
 import { formatAddressTruncate } from '@/utils/formatters/formatAddressTruncate';
+import { formatMinDepositAmount } from '@/utils/formatters/formatMinDepositAmount';
 import { getTransactionLink } from '@/utils/formatters/getTransactionLink';
-import { isNotEmptyAmount } from '@/utils/checkers/isNotEmptyAmount';
 import type { TransferResult } from '@/types';
 
 type Msg =
   | { type: 'on_transaction_received' }
-  | { type: 'on_successful_transfer'; transferResult: TransferResult };
+  | { type: 'on_successful_transfer'; transferResult: TransferResult | null };
 
 type Props = {
   onMsg: (msg: Msg) => void;
 };
 
-const QrCode = ({ address }: { address: string }) => (
-  <div className="flex flex-col gap-sw-2xl items-center">
-    <div className="p-sw-lg m-sw-lg mx-auto w-fit rounded-sw-md bg-[#fff]">
-      <QRCodeSVG size={156} value={address} fgColor="#161926" />
-    </div>
+const InputReadonlyCopy = ({
+  label,
+  displayValue,
+  copyValue,
+}: {
+  label?: string;
+  copyValue: string;
+  displayValue?: string;
+}) => (
+  <div className="flex flex-col gap-y-sw-xs">
+    {!!label && (
+      <span className="text-sw-label-sm text-sw-gray-200">{label}</span>
+    )}
     <div className="py-sw-lg px-sw-lg w-full flex items-center justify-between rounded-sw-md bg-sw-gray-800">
-      <span className="text-sw-label-md text-sw-gray-100">
-        {formatAddressTruncate(address, 38)}
+      <span className="text-sw-label-md text-sw-gray-100 w-full text-center">
+        {displayValue ?? copyValue}
       </span>
-      <CopyButton value={address} />
+      <CopyButton value={copyValue} />
     </div>
   </div>
 );
 
-const Skeleton = () => {
-  const { t } = useTypedTranslation();
+const qrCode = new QRCodeStyling({
+  width: 200,
+  height: 200,
+  image: AURORA_BASE64_LOGO,
+  type: 'svg',
+  /** H + smaller logo area: center image must not wipe data modules without ECC */
+  qrOptions: {
+    errorCorrectionLevel: 'H',
+  },
+  dotsOptions: {
+    color: '#161926',
+    type: 'extra-rounded',
+  },
+  backgroundOptions: {
+    color: '#fff',
+  },
+  cornersSquareOptions: {
+    type: 'dot',
+  },
+  cornersDotOptions: {
+    type: 'dot',
+  },
+  imageOptions: {
+    crossOrigin: 'anonymous',
+    /** Coefficient 0–1 (not px). Over ~0.5 hurts scan reliability; default 0.4 */
+    hideBackgroundDots: true,
+    imageSize: 0.4,
+    margin: 8,
+  },
+});
+
+const QrCode = ({ address }: { address: string }) => {
   const { ctx } = useUnsafeSnapshot();
+  const { t } = useTypedTranslation();
+
+  const containerRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) {
+      qrCode.append(node);
+    }
+  }, []);
+
+  useEffect(() => {
+    qrCode.update({
+      data: address,
+    });
+  }, [address]);
+
+  const isQuoteSuccess = guardStates(ctx, [
+    'quote_success_internal',
+    'quote_success_external',
+  ]);
+
+  if (!isQuoteSuccess) {
+    return null;
+  }
+
+  const minDepositAmount =
+    ctx.quote.type === 'QUOTE_DEPOSIT_ANY_AMOUNT' && ctx.sourceToken
+      ? formatMinDepositAmount(ctx.quote.minAmountIn, ctx.sourceToken.decimals)
+      : '';
+
+  return (
+    <div className="flex flex-col gap-y-sw-sm">
+      <div className="mx-auto w-fit p-sw-lg mb-sw-xl rounded-[32px] bg-[#fff]">
+        <div ref={containerRef} />
+      </div>
+      <div className="flex flex-col gap-y-sw-lg">
+        <InputReadonlyCopy
+          copyValue={address}
+          label={
+            ctx.sourceToken
+              ? t('deposit.external.address.labelWithAsset', {
+                  defaultValue: 'Send {{symbol}} on {{chain}} to this address',
+                  symbol: ctx.sourceToken.symbol.toUpperCase(),
+                  chain: ctx.sourceToken.blockchain.toUpperCase(),
+                })
+              : t('deposit.external.address.label', 'Send to this address')
+          }
+          displayValue={formatAddressTruncate(address, {
+            mode: 'manual',
+            leftVisible: 8,
+            rightVisible: 6,
+          })}
+        />
+        {!!ctx.quote.depositMemo && (
+          <InputReadonlyCopy
+            copyValue={ctx.quote.depositMemo}
+            label={t(
+              'deposit.external.memo.label',
+              'Use this transaction memo (required)',
+            )}
+          />
+        )}
+      </div>
+      <Banner
+        hasBg={false}
+        variant="success"
+        message={
+          minDepositAmount && ctx.sourceToken
+            ? t('deposit.external.minAmount.message', {
+                defaultValue:
+                  'You can deposit any amount from {{amount}} {{symbol}} with this address',
+                amount: minDepositAmount,
+                symbol: ctx.sourceToken.symbol,
+              })
+            : t(
+                'deposit.external.anyAmount.message',
+                'You can deposit any amount with this address',
+              )
+        }
+      />
+    </div>
+  );
+};
+
+export const QRCodeSkeleton = () => {
+  const { t } = useTypedTranslation();
 
   return (
     <div className="flex flex-col gap-sw-2xl items-center">
@@ -52,9 +171,7 @@ const Skeleton = () => {
       <div className="bg-sw-gray-800 h-[44px] w-full animate-pulse rounded-sw-md flex items-center justify-center gap-sw-sm">
         <ProgressActivity className="animate-spin text-sw-gray-100 h-sw-lg w-sw-lg" />
         <span className="text-sw-gray-100 text-sw-label-sm">
-          {!isNotEmptyAmount(ctx.sourceTokenAmount)
-            ? t('deposit.external.loading.waiting', 'Waiting for token amount')
-            : t('deposit.external.loading.fetching', 'Fetching new address')}
+          {t('deposit.external.loading.fetching', 'Fetching new address')}
         </span>
       </div>
     </div>
@@ -64,22 +181,27 @@ const Skeleton = () => {
 export const ExternalDeposit = ({ onMsg }: Props) => {
   const { t } = useTypedTranslation();
   const { ctx } = useUnsafeSnapshot();
-  const { isNativeNearDeposit } = useComputedSnapshot();
+
+  const { addPendingTokens } = useBalancesUpdate();
+  const { mergedBalance } = useMergedBalance();
+
+  // Refs keep latest values accessible inside the depositStatusQuery effect
+  // without adding them to its dependency array (which would cause re-runs
+  // that could call moveTo / addPendingTokens multiple times).
+  const addPendingTokensRef = useRef(addPendingTokens);
+  const mergedBalanceRef = useRef(mergedBalance);
+
+  addPendingTokensRef.current = addPendingTokens;
+  mergedBalanceRef.current = mergedBalance;
 
   const isValidState = guardStates(ctx, [
     'quote_success_external',
     'quote_success_internal',
   ]);
 
-  const isBridgePoaDeposit =
-    (isNativeNearDeposit && ctx.isDepositFromExternalWallet) ||
-    (!isNativeNearDeposit &&
-      ctx.sourceToken?.assetId === ctx.targetToken?.assetId);
-
-  const depositStatusQuery = useExternalDepositStatus({
-    depositAddress: isValidState ? ctx.quote.depositAddress : '',
-    depositAddressType: isBridgePoaDeposit ? 'poa' : 'one_click',
-  });
+  const depositStatusQuery = useExternalDepositStatus(
+    isValidState ? ctx.quote.depositAddress : '',
+  );
 
   useEffect(() => {
     const status = depositStatusQuery.data?.status;
@@ -90,27 +212,53 @@ export const ExternalDeposit = ({ onMsg }: Props) => {
 
     switch (status) {
       case GetExecutionStatusResponse.status.SUCCESS: {
-        const txHash =
-          depositStatusQuery.data.swapDetails.destinationChainTxHashes[0]?.hash;
-
         fireEvent('transferSetStatus', { status: 'success' });
+
+        if (ctx.sourceToken && ctx.targetToken) {
+          const sourceKey = getTokenBalanceKey(ctx.sourceToken);
+          const targetKey = getTokenBalanceKey(ctx.targetToken);
+
+          addPendingTokensRef.current([
+            {
+              balanceKey: sourceKey,
+              priorBalance: mergedBalanceRef.current[sourceKey],
+            },
+            {
+              balanceKey: targetKey,
+              priorBalance: mergedBalanceRef.current[targetKey],
+            },
+          ]);
+        }
+
         moveTo('transfer_success');
 
-        onMsg({
-          type: 'on_successful_transfer',
-          transferResult: {
-            hash: txHash ?? '',
-            intent: depositStatusQuery.data.swapDetails.intentHashes[0],
-            transactionLink:
-              (ctx.sourceToken &&
-                txHash &&
-                getTransactionLink(
-                  CHAIN_IDS_MAP[ctx.sourceToken.blockchain],
-                  txHash,
-                )) ??
-              '',
-          },
-        });
+        if ('swapDetails' in depositStatusQuery.data) {
+          const txHash =
+            depositStatusQuery.data.swapDetails.destinationChainTxHashes[0]
+              ?.hash;
+
+          onMsg({
+            type: 'on_successful_transfer',
+            transferResult: {
+              hash: txHash ?? '',
+              amount: depositStatusQuery.data.swapDetails.amount,
+              amountUsd: depositStatusQuery.data.swapDetails.amountUsd,
+              amountOut: depositStatusQuery.data.swapDetails.amountOut,
+              amountOutUsd: depositStatusQuery.data.swapDetails.amountOutUsd,
+              // for FLEX_INPUT Intents Explorer expects a deposit address
+              // in the URL as a transaction ID...
+              transactionLink:
+                (depositStatusQuery.data.quoteResponse.quote.depositAddress &&
+                  getTransactionLink(
+                    depositStatusQuery.data.quoteResponse.quote.depositAddress,
+                  )) ??
+                '',
+            },
+          });
+        } else {
+          onMsg({ type: 'on_successful_transfer', transferResult: null });
+        }
+
         break;
       }
 
@@ -143,11 +291,15 @@ export const ExternalDeposit = ({ onMsg }: Props) => {
   }, [depositStatusQuery.data, ctx.sourceToken]);
 
   if (!isValidState) {
-    return <Skeleton />;
+    return <QRCodeSkeleton />;
   }
 
   if (!depositStatusQuery.data) {
-    return <QrCode address={ctx.quote.depositAddress} />;
+    return isValidState ? (
+      <QrCode address={ctx.quote.depositAddress} />
+    ) : (
+      <QRCodeSkeleton />
+    );
   }
 
   switch (depositStatusQuery.status) {
@@ -194,7 +346,11 @@ export const ExternalDeposit = ({ onMsg }: Props) => {
         case GetExecutionStatusResponse.status.KNOWN_DEPOSIT_TX:
           return <StatusWidget.Success />;
         case GetExecutionStatusResponse.status.PENDING_DEPOSIT:
-          return <QrCode address={ctx.quote.depositAddress} />;
+          return isValidState ? (
+            <QrCode address={ctx.quote.depositAddress} />
+          ) : (
+            <QRCodeSkeleton />
+          );
         case GetExecutionStatusResponse.status.SUCCESS:
           return <StatusWidget.Success />;
         default:

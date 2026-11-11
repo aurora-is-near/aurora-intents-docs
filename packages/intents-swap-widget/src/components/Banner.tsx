@@ -9,27 +9,33 @@ import { cn } from '@/utils/cn';
 type Props = {
   message: string;
   multiline?: boolean;
-  variant: 'error' | 'warn' | 'success';
+  variant: 'error' | 'warn' | 'success' | 'info';
+  iconPosition?: 'left' | 'right';
+  hasBg?: boolean;
   className?: string;
   onDismiss?: () => void;
 };
 
 export const Banner = ({
+  hasBg,
   variant,
   multiline,
   message,
   className,
+  iconPosition = 'left',
   onDismiss,
 }: Props) => {
   const icon = useMemo(() => {
     switch (variant) {
       case 'success':
-        return <VerifiedFill size={16} />;
+        return <VerifiedFill size={14} />;
       case 'error':
-        return <ErrorFill size={16} />;
+        return <ErrorFill size={14} />;
+      case 'info':
+        return null;
       case 'warn':
       default:
-        return <Emergency size={16} />;
+        return <Emergency size={14} />;
     }
   }, [variant]);
 
@@ -41,16 +47,25 @@ export const Banner = ({
           'text-sw-status-error': variant === 'error',
           'text-sw-status-warning': variant === 'warn',
           'text-sw-status-success': variant === 'success',
+          'text-sw-gray-200': variant === 'info',
+
+          'bg-sw-status-error-bg': variant === 'error' && hasBg,
+          'bg-sw-status-warning-bg': variant === 'warn' && hasBg,
+          'bg-sw-status-success-bg': variant === 'success' && hasBg,
+          'bg-sw-gray-900': variant === 'info' && hasBg,
+
+          'p-sw-lg rounded-sw-md leading-normal': hasBg,
         },
         className,
       )}>
-      {!multiline && icon}
+      {!multiline && iconPosition === 'left' && icon}
       <span
-        className={cn('text-sw-label-sm', {
+        className={cn('text-sw-body-sm', {
           'text-nowrap': !multiline,
         })}>
         {message}
       </span>
+      {!multiline && iconPosition === 'right' && icon}
       {onDismiss && (
         <div
           onClick={onDismiss}

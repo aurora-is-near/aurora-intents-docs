@@ -1,14 +1,26 @@
-import { Quote, QuoteRequest } from '@defuse-protocol/one-click-sdk-typescript';
+import type {
+  Quote,
+  QuoteRequest,
+} from '@defuse-protocol/one-click-sdk-typescript';
+
+import { FetchQuoteOptions, SwapConfidentialMode } from './quote';
 import { Chains, ChainsFilters } from './chain';
 import { SimpleToken, Token } from './token';
-import { FetchQuoteOptions } from './quote';
+import { Plugins } from './connectors';
 import { Providers } from './providers';
 
 export type WalletAddresses = Partial<
   Record<Chains | 'default', string | null>
 >;
 
-export type IntentsAccountType = 'evm' | 'near' | 'sol';
+export type IntentsAccountType =
+  | 'evm'
+  | 'near'
+  | 'sol'
+  | 'stellar'
+  | 'webauthn';
+
+export type WidgetEnvironment = 'production' | 'staging';
 
 export type DefaultToken = Pick<Token, 'symbol' | 'blockchain'>;
 
@@ -18,17 +30,33 @@ export type PriorityAssets =
 
 export type WidgetConfig = {
   // Application metadata
-  appName: string;
-  appIcon?: string;
   apiKey?: string;
+  referral?: string;
+
+  // Backend environment for the widget
+  environment?: WidgetEnvironment;
+  // Fee service base URL, overriding `environment` (e.g. a local instance)
+  intentsApiUrl?: string;
 
   // Account abstraction
   enableAccountAbstraction?: boolean;
 
-  // Providers
+  // Wallet providers (raw wallet objects per chain)
   providers?: Providers;
 
+  // Plugins (e.g. to handle chain-specific transfers)
+  plugins?: Plugins;
+
   // Connected wallet
+  // Explicit account type; required for passkey (`webauthn`) accounts, whose
+  // intents account ID looks like an EVM address.
+  intentsAccountType?: IntentsAccountType;
+  // The intents account the widget acts for when it isn't the one derived
+  // from the connected wallet: e.g. a secondary wallet funding a primary
+  // account. Balances, intents-side recipients and intents refunds use it;
+  // the connected wallet still signs on-chain and takes origin-chain refunds.
+  intentsAccountId?: string;
+  allowSwapWithExternalWallet?: boolean;
   walletSupportedChains?: ReadonlyArray<Chains>;
   connectedWallets: WalletAddresses;
   onWalletSignout?: (walletType?: IntentsAccountType) => void;
@@ -40,11 +68,21 @@ export type WidgetConfig = {
   // Quotes & Transfers
   slippageTolerance: number;
   enableAutoTokensSwitching?: boolean;
+  attachWalletAddressToQuote?: boolean;
   refetchQuoteInterval?: number;
+  confidentialMode?: SwapConfidentialMode | 'user-choice';
+
   appFees?: {
     recipient: string;
     fee: number;
   }[];
+
+  extraQuoteParameters?: {
+    sessionId?: string;
+    virtualChainRecipient?: string;
+    virtualChainRefundRecipient?: string;
+    customRecipientMsg?: string;
+  };
 
   // Default tokens
   defaultSourceToken?: DefaultToken | null;
@@ -56,6 +94,7 @@ export type WidgetConfig = {
   allowedTargetTokensList?: string[];
   priorityAssets?: PriorityAssets;
   filterTokens: (token: Token) => boolean;
+  disabledInternalBalanceTokens?: string[];
 
   // Chains filtering
   chainsOrder: Chains[];
@@ -85,4 +124,6 @@ export type WidgetConfig = {
   hideTokenInputHeadings?: boolean;
   themeParentElementSelector?: string;
   lockSwapDirection?: boolean;
+  showTransactionHistory?: boolean;
+  showConversionPreview?: boolean;
 };

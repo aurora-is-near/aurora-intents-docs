@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { OutlinedButton } from '../../uikit/Button';
-import {
-  isTokenAvailable,
-  TokenType,
-  useTokensGroupedBySymbol,
-} from '../../hooks/useTokens';
+import { TokenType, useTokensGroupedBySymbol } from '../../hooks/useTokens';
 import { useCreator } from '../../hooks/useCreatorConfig';
+import {
+  getSelectableTokenSymbols,
+  isDisabledTokenSymbol,
+  isTokenAvailable,
+} from '../../utils/tokenSelection';
 import { TokenRow } from './TokenRow';
 
 interface TokenSelectionModalProps {
@@ -31,12 +32,21 @@ export function TokenSelectionModal({
 }: TokenSelectionModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const allTokens = useTokensGroupedBySymbol();
+  const allTokenSymbols = useMemo(
+    () => allTokens.map((token) => token.symbol),
+    [allTokens],
+  );
+
   const { state, dispatch } = useCreator();
 
-  const selectedTokens = state.selectedTokenSymbols || [];
+  const selectedTokens = state.selectedTokenSymbols ?? allTokenSymbols;
+  const selectedTokenCount = getSelectableTokenSymbols(selectedTokens).length;
 
   const onTokensChange = (tokens: string[]) => {
-    dispatch({ type: 'SET_SELECTED_TOKEN_SYMBOLS', payload: tokens });
+    dispatch({
+      type: 'SET_SELECTED_TOKEN_SYMBOLS',
+      payload: tokens,
+    });
 
     if (
       state.defaultSellToken?.symbol &&
@@ -66,18 +76,30 @@ export function TokenSelectionModal({
 
   // Filter tokens based on search and deduplicate by symbol
   const filteredTokens = useMemo(() => {
-    return allTokens.filter((token: TokenType) => {
-      return token.symbol.toLowerCase().includes(searchQuery.toLowerCase());
-    });
+    return (
+      allTokens
+        // remove USDT0 from displayed list but not tokens data
+        // we display USDT0 as a general USDT token in the widget
+        .filter((token) => token.symbol !== 'USDT0')
+        .filter((token) => !isDisabledTokenSymbol(token.symbol))
+        .filter((token: TokenType) => {
+          return token.symbol.toLowerCase().includes(searchQuery.toLowerCase());
+        })
+    );
   }, [searchQuery, allTokens]);
+
+  // The Intents layer holds every asset, so enabling it makes every token
+  // available regardless of which networks are selected.
+  const isIntentsEnabled = state.accountAbstractionMode === 'enabled';
 
   // Separate available and unavailable tokens
   const availableFilteredTokens = filteredTokens.filter((token: TokenType) =>
-    isTokenAvailable(token, state.selectedNetworks),
+    isTokenAvailable(token, state.selectedNetworks, isIntentsEnabled),
   );
 
   const unavailableFilteredTokens = filteredTokens.filter(
-    (token: TokenType) => !isTokenAvailable(token, state.selectedNetworks),
+    (token: TokenType) =>
+      !isTokenAvailable(token, state.selectedNetworks, isIntentsEnabled),
   );
 
   // Separate popular and other tokens
@@ -86,9 +108,7 @@ export function TokenSelectionModal({
   );
 
   const otherAvailable = availableFilteredTokens.filter(
-    (token: TokenType) =>
-      !POPULAR_TOKENS.includes(token.symbol) &&
-      token.symbol.toLocaleLowerCase() !== 'near',
+    (token: TokenType) => !POPULAR_TOKENS.includes(token.symbol),
   );
 
   const handleToggleToken = (tokenId: string) => {
@@ -159,12 +179,13 @@ export function TokenSelectionModal({
         }}
         onClick={onClose}>
         <div
-          className="relative z-50 mx-4 w-full max-w-[456px] rounded-csw-lg bg-csw-gray-900 shadow-lg overflow-hidden flex flex-col max-h-[90vh] px-csw-2xl py-csw-2xl gap-csw-2xl"
+          className="relative z-50 mx-4 w-full max-w-[456px] rounded-csw-lg bg-csw-gray-950 shadow-lg overflow-hidden flex flex-col max-h-[90vh] px-csw-2xl py-csw-2xl"
           onClick={(e) => e.stopPropagation()}>
           <div className="flex items-start justify-between gap-csw-lg flex-shrink-0">
             <div className="flex flex-col gap-csw-md flex-1">
               <h2 className="font-semibold text-base leading-4 tracking-[-0.4px] text-csw-gray-50">
-                {selectedTokens.length} tokens selected
+                {selectedTokenCount} token{selectedTokenCount === 1 ? '' : 's'}{' '}
+                selected
               </h2>
               <p className="font-medium text-sm leading-5 tracking-[-0.4px] text-csw-gray-200">
                 Selected tokens apply to all chosen networks.
@@ -172,12 +193,12 @@ export function TokenSelectionModal({
             </div>
             <button
               onClick={onClose}
-              className="bg-csw-gray-950 p-csw-md rounded-csw-md hover:bg-csw-gray-800 transition-colors flex-shrink-0 cursor-pointer">
-              <X className="w-csw-lg h-csw-lg text-csw-gray-50" />
+              className="bg-csw-gray-950 p-csw-md rounded-csw-md hover:bg-csw-gray-900 transition-colors flex-shrink-0 cursor-pointer">
+              <X className="w-[20px] h-[20px] text-csw-gray-50" />
             </button>
           </div>
 
-          <div className="flex-shrink-0">
+          <div className="flex-shrink-0 mt-csw-lg mb-csw-md">
             <div className="flex gap-csw-md items-center bg-csw-gray-800 px-csw-lg py-csw-md rounded-csw-md">
               <Search className="w-csw-lg h-csw-lg text-csw-gray-300 flex-shrink-0" />
               <input
@@ -190,24 +211,24 @@ export function TokenSelectionModal({
             </div>
           </div>
 
-          <div className="bg-csw-gray-800 h-[1px]" />
+          <div className="bg-csw-gray-900 min-h-[1px] mt-csw-2xl" />
 
-          <div className="flex-1 overflow-y-auto hide-scrollbar flex flex-col gap-csw-2xl">
+          <div className="flex-1 overflow-y-auto hide-scrollbar flex flex-col pt-csw-2xl">
             {popularAvailable.length > 0 && (
               <div>
-                <div className="flex items-center justify-between mb-csw-lg">
-                  <p className="font-semibold text-sm leading-4 tracking-[-0.4px] text-csw-gray-200">
+                <div className="flex items-center justify-between mb-csw-xl">
+                  <p className="font-semibold text-sm leading-4 tracking-[-0.4px] text-csw-gray-50">
                     Popular tokens
                   </p>
                   <OutlinedButton
                     fluid
-                    size="sm"
+                    size="xs"
                     onClick={handleSelectAllPopular}>
                     {allPopularSelected ? 'Deselect all' : 'Select all'}
                   </OutlinedButton>
                 </div>
 
-                <div className="flex flex-col gap-csw-md">
+                <div className="flex flex-col gap-csw-xs">
                   {popularAvailable.map((token: TokenType) => (
                     <TokenRow
                       key={token.symbol}
@@ -221,14 +242,14 @@ export function TokenSelectionModal({
               </div>
             )}
 
-            <div className="bg-csw-gray-800 h-[1px]" />
+            <div className="bg-csw-gray-900 min-h-[1px] my-csw-2xl" />
 
             <div>
               {(otherAvailable.length > 0 ||
                 unavailableFilteredTokens.length > 0) && (
                 <>
-                  <div className="flex items-center justify-between mb-csw-lg">
-                    <p className="font-semibold text-sm leading-4 tracking-[-0.4px] text-csw-gray-200">
+                  <div className="flex items-center justify-between mb-csw-xl">
+                    <p className="font-semibold text-sm leading-4 tracking-[-0.4px] text-csw-gray-50">
                       {popularAvailable.length > 0
                         ? 'Other tokens'
                         : 'All tokens'}
@@ -237,7 +258,7 @@ export function TokenSelectionModal({
                       unavailableFilteredTokens.length > 0) && (
                       <OutlinedButton
                         fluid
-                        size="sm"
+                        size="xs"
                         onClick={handleSelectAllOther}>
                         {allOtherSelected ? 'Deselect all' : 'Select all'}
                       </OutlinedButton>
@@ -246,7 +267,7 @@ export function TokenSelectionModal({
                 </>
               )}
 
-              <div className="flex flex-col gap-csw-md">
+              <div className="flex flex-col gap-csw-xs">
                 {otherAvailable.map((token: TokenType) => (
                   <TokenRow
                     key={token.symbol}

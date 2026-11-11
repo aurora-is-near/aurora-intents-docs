@@ -3,7 +3,12 @@ import { Chains } from './chain';
 export type TransferResult = {
   hash: string;
   transactionLink: string;
+  amountUsd?: string;
+  amount?: string;
+  amountOut?: string;
+  amountOutUsd?: string;
   intent?: string;
+  isOneClickDeposit?: boolean;
 };
 
 export type MakeTransferArgs = {
@@ -18,14 +23,6 @@ export type MakeTransferArgs = {
   targetAssetId: string;
 };
 
-export type MakeTransferResult = {
-  hash: string;
-  transactionLink: string;
-  intent?: string;
-};
-
-export type MakeTransferResponse = MakeTransferResult | null;
-
 export type MakeTransfer = (
   args: MakeTransferArgs,
-) => Promise<MakeTransferResponse> | MakeTransferResponse;
+) => Promise<TransferResult | null> | TransferResult | null;

@@ -6,6 +6,8 @@ import {
 import React, { createContext, useReducer } from 'react';
 import type { ReactNode } from 'react';
 import { ThemeColorPickerId } from '../types/colors';
+import type { SerializableTheme, SerializableWidgetConfig } from '../api/types';
+import { normalizeSelectedTokenSymbols } from '../utils/tokenSelection';
 import {
   DEFAULT_ACCENT_COLOR,
   DEFAULT_BACKGROUND_COLOR,
@@ -18,6 +20,12 @@ import {
 type CreatorState = {
   // Configure - Wallet connection
   userAuthMode: 'standalone' | 'dapp';
+  // Configure - Confidentiality
+  confidentialMode: 'public' | 'confidential' | 'user-choice';
+  // Configure - Widget mode
+  widgetMode: 'swap' | 'deposit';
+  depositModeReceiverAddress: string;
+  allowSwapWithExternalWallet: boolean;
   // Configure - Account abstraction
   accountAbstractionMode: 'enabled' | 'disabled';
   // Configure - Networks
@@ -25,7 +33,7 @@ type CreatorState = {
   // Configure - App Key
   apiKey: string;
   // Configure - Tokens
-  selectedTokenSymbols: string[];
+  selectedTokenSymbols: string[] | null;
   enableSellToken: boolean;
   defaultSellToken: { symbol: string; blockchain: Chains } | null;
   enableBuyToken: boolean;
@@ -34,6 +42,8 @@ type CreatorState = {
   enableCustomFees: boolean;
   feePercentage: string;
   collectorAddress: string;
+  // UI
+  hideTokenInputHeadings: boolean;
   // Design - Mode
   defaultMode: 'dark' | 'light';
   // Design - Style
@@ -47,17 +57,70 @@ type CreatorState = {
   warningColor: string;
   errorColor: string;
   openThemeColorPickerId: ThemeColorPickerId | null;
+  isConfigurationSyncedToRemote: boolean;
+  extraQuoteParameters?: {
+    sessionId?: string;
+    virtualChainRecipient?: string;
+    virtualChainRefundRecipient?: string;
+  };
+};
+
+const getCreatorStateFromRemoteWidgetConfig = (
+  state: CreatorState,
+  config: SerializableWidgetConfig,
+  theme: SerializableTheme,
+  apiKey?: string,
+): CreatorState => {
+  const isDepositMode = Boolean(config.sendAddress);
+
+  return {
+    ...state,
+    apiKey: apiKey ?? state.apiKey,
+    widgetMode: isDepositMode ? 'deposit' : 'swap',
+    depositModeReceiverAddress: config.sendAddress ?? '',
+    allowSwapWithExternalWallet: config.allowSwapWithExternalWallet ?? true,
+    hideTokenInputHeadings: config.hideTokenInputHeadings ?? false,
+    confidentialMode: config.confidentialMode ?? 'public',
+    accountAbstractionMode:
+      config.enableAccountAbstraction === false ? 'disabled' : 'enabled',
+    // No allowed list means every chain is allowed (`chainsOrder` only sorts),
+    // so select them all — including chains added after the config was saved.
+    selectedNetworks:
+      config.allowedChainsList ?? CHAINS.map((chain) => chain.id),
+    selectedTokenSymbols: config.allowedTokensList
+      ? normalizeSelectedTokenSymbols(config.allowedTokensList)
+      : null,
+    enableSellToken: Boolean(config.defaultSourceToken),
+    defaultSellToken: config.defaultSourceToken ?? null,
+    enableBuyToken: isDepositMode ? false : Boolean(config.defaultTargetToken),
+    defaultBuyToken: config.defaultTargetToken ?? null,
+    defaultMode: theme.colorScheme ?? 'dark',
+    stylePreset: theme.stylePreset ?? 'clean',
+    borderRadius: theme.borderRadius ?? 'md',
+    showContainerWrapper: Boolean(theme.showContainer),
+    accentColor: theme.accentColor ?? DEFAULT_ACCENT_COLOR,
+    backgroundColor: theme.backgroundColor ?? DEFAULT_BACKGROUND_COLOR,
+    successColor: theme.successColor ?? DEFAULT_SUCCESS_COLOR_LIGHT,
+    warningColor: theme.warningColor ?? DEFAULT_WARNING_COLOR_LIGHT,
+    errorColor: theme.errorColor ?? DEFAULT_ERROR_COLOR_LIGHT,
+    extraQuoteParameters: config.extraQuoteParameters,
+  };
 };
 
 const initialState: CreatorState = {
+  widgetMode: 'swap',
   userAuthMode: 'standalone',
-  accountAbstractionMode: 'enabled',
+  accountAbstractionMode: 'disabled',
+  allowSwapWithExternalWallet: false,
   selectedNetworks: CHAINS.map((chain) => chain.id),
-  selectedTokenSymbols: [],
+  selectedTokenSymbols: null,
+  confidentialMode: 'public',
+  hideTokenInputHeadings: false,
   enableSellToken: true,
   defaultSellToken: { symbol: 'USDT', blockchain: 'near' },
   enableBuyToken: false,
-  defaultBuyToken: { symbol: 'USDT', blockchain: 'eth' },
+  defaultBuyToken: null,
+  depositModeReceiverAddress: '',
   enableCustomFees: false,
   feePercentage: '1',
   collectorAddress: '0x92c21eB298128FDE1b7f8A9332910A614DC7df0A',
@@ -73,11 +136,21 @@ const initialState: CreatorState = {
   warningColor: DEFAULT_WARNING_COLOR_LIGHT,
   errorColor: DEFAULT_ERROR_COLOR_LIGHT,
   openThemeColorPickerId: null,
+  isConfigurationSyncedToRemote: false,
 };
 
 type Action =
   // Configure - Wallet connection
   | { type: 'SET_USER_AUTH_MODE'; payload: 'standalone' | 'dapp' }
+  | { type: 'SET_ALLOW_SWAP_WITH_QR'; payload: boolean }
+  // Configure - Confidentiality
+  | {
+      type: 'SET_CONFIDENTIAL_MODE';
+      payload: 'public' | 'confidential' | 'user-choice';
+    }
+  // Configure - Widget mode
+  | { type: 'SET_WIDGET_MODE'; payload: 'swap' | 'deposit' }
+  | { type: 'SET_DEPOSIT_MODE_RECEIVER_ADDRESS'; payload: string }
   // Configure - Account abstraction
   | { type: 'SET_ACCOUNT_ABSTRACTION_MODE'; payload: 'enabled' | 'disabled' }
   // Configure - Networks
@@ -100,6 +173,8 @@ type Action =
   | { type: 'SET_ENABLE_CUSTOM_FEES'; payload: boolean }
   | { type: 'SET_FEE_PERCENTAGE'; payload: string }
   | { type: 'SET_COLLECTOR_ADDRESS'; payload: string }
+  // UI
+  | { type: 'SET_HIDE_TOKEN_INPUT_HEADINGS'; payload: boolean }
   // Design - Mode
   | { type: 'SET_DEFAULT_MODE'; payload: 'dark' | 'light' }
   // Design - Style
@@ -116,69 +191,208 @@ type Action =
       type: 'SET_OPEN_THEME_COLOR_PICKER_ID';
       payload: ThemeColorPickerId | null;
     }
+  | {
+      type: 'APPLY_REMOTE_WIDGET_CONFIG';
+      payload: {
+        config: SerializableWidgetConfig;
+        theme: SerializableTheme;
+        apiKey?: string;
+      };
+    }
   // Reset
   | { type: 'RESET_ALL' }
-  | { type: 'RESET_DESIGN' };
+  | { type: 'RESET_DESIGN' }
+  // Sync
+  | { type: 'SET_CONFIGURATION_SYNCED_TO_REMOTE' };
 
 // 4. Reducer function
 function creatorReducer(state: CreatorState, action: Action): CreatorState {
   switch (action.type) {
     // Configure
     case 'SET_USER_AUTH_MODE':
-      return { ...state, userAuthMode: action.payload };
+      return {
+        ...state,
+        userAuthMode: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
+
+    case 'SET_CONFIDENTIAL_MODE':
+      return {
+        ...state,
+        confidentialMode: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
+
+    case 'SET_ALLOW_SWAP_WITH_QR':
+      return {
+        ...state,
+        allowSwapWithExternalWallet: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
+
+    case 'SET_WIDGET_MODE': {
+      const isDeposit = action.payload === 'deposit';
+
+      return {
+        ...state,
+        widgetMode: action.payload,
+        depositModeReceiverAddress:
+          isDeposit && !state.depositModeReceiverAddress
+            ? '0x0000000000000000000000000000000000000000'
+            : state.depositModeReceiverAddress,
+        defaultBuyToken:
+          isDeposit && !state.defaultBuyToken
+            ? { symbol: 'USDC', blockchain: 'base' }
+            : state.defaultBuyToken,
+        isConfigurationSyncedToRemote: false,
+      };
+    }
+
+    case 'SET_HIDE_TOKEN_INPUT_HEADINGS':
+      return {
+        ...state,
+        hideTokenInputHeadings: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
+
     case 'SET_ACCOUNT_ABSTRACTION_MODE':
-      return { ...state, accountAbstractionMode: action.payload };
+      return {
+        ...state,
+        accountAbstractionMode: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
     case 'SET_SELECTED_NETWORKS':
-      return { ...state, selectedNetworks: action.payload };
+      return {
+        ...state,
+        selectedNetworks: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
+    case 'SET_DEPOSIT_MODE_RECEIVER_ADDRESS':
+      return {
+        ...state,
+        depositModeReceiverAddress: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
     case 'SET_SELECTED_TOKEN_SYMBOLS':
       return {
         ...state,
-        selectedTokenSymbols: Array.from(new Set(action.payload)),
+        selectedTokenSymbols: normalizeSelectedTokenSymbols(action.payload),
+        isConfigurationSyncedToRemote: false,
       };
     case 'SET_ENABLE_SELL_TOKEN':
-      return { ...state, enableSellToken: action.payload };
+      return {
+        ...state,
+        enableSellToken: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
     case 'SET_DEFAULT_SELL_TOKEN':
       return {
         ...state,
         defaultSellToken: action.payload,
+        isConfigurationSyncedToRemote: false,
       };
     case 'SET_ENABLE_BUY_TOKEN':
-      return { ...state, enableBuyToken: action.payload };
+      return {
+        ...state,
+        enableBuyToken: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
     case 'SET_DEFAULT_BUY_TOKEN':
       return {
         ...state,
         defaultBuyToken: action.payload,
+        isConfigurationSyncedToRemote: false,
       };
     case 'SET_ENABLE_CUSTOM_FEES':
-      return { ...state, enableCustomFees: action.payload };
+      return {
+        ...state,
+        enableCustomFees: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
     case 'SET_FEE_PERCENTAGE':
-      return { ...state, feePercentage: action.payload };
+      return {
+        ...state,
+        feePercentage: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
     case 'SET_COLLECTOR_ADDRESS':
-      return { ...state, collectorAddress: action.payload };
+      return {
+        ...state,
+        collectorAddress: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
+    // apiKey is stripped before saving to remote, so it does not affect sync status
     case 'SET_API_KEY':
       return { ...state, apiKey: action.payload };
 
     // Design
     case 'SET_DEFAULT_MODE':
-      return { ...state, defaultMode: action.payload };
+      return {
+        ...state,
+        defaultMode: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
     case 'SET_STYLE_PRESET':
-      return { ...state, stylePreset: action.payload };
+      return {
+        ...state,
+        stylePreset: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
     case 'SET_BORDER_RADIUS':
-      return { ...state, borderRadius: action.payload };
+      return {
+        ...state,
+        borderRadius: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
     case 'SET_SHOW_CONTAINER_WRAPPER':
-      return { ...state, showContainerWrapper: action.payload };
+      return {
+        ...state,
+        showContainerWrapper: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
     case 'SET_ACCENT_COLOR':
-      return { ...state, accentColor: action.payload };
+      return {
+        ...state,
+        accentColor: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
     case 'SET_BACKGROUND_COLOR':
-      return { ...state, backgroundColor: action.payload };
+      return {
+        ...state,
+        backgroundColor: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
     case 'SET_SUCCESS_COLOR':
-      return { ...state, successColor: action.payload };
+      return {
+        ...state,
+        successColor: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
     case 'SET_WARNING_COLOR':
-      return { ...state, warningColor: action.payload };
+      return {
+        ...state,
+        warningColor: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
     case 'SET_ERROR_COLOR':
-      return { ...state, errorColor: action.payload };
+      return {
+        ...state,
+        errorColor: action.payload,
+        isConfigurationSyncedToRemote: false,
+      };
+    // openThemeColorPickerId is UI-only state, does not affect sync status
     case 'SET_OPEN_THEME_COLOR_PICKER_ID':
       return { ...state, openThemeColorPickerId: action.payload };
+    case 'APPLY_REMOTE_WIDGET_CONFIG':
+      return {
+        ...getCreatorStateFromRemoteWidgetConfig(
+          state,
+          action.payload.config,
+          action.payload.theme,
+          action.payload.apiKey,
+        ),
+        isConfigurationSyncedToRemote: true,
+      };
     case 'RESET_DESIGN':
       return {
         ...state,
@@ -191,9 +405,12 @@ function creatorReducer(state: CreatorState, action: Action): CreatorState {
         successColor: DEFAULT_SUCCESS_COLOR_LIGHT,
         warningColor: DEFAULT_WARNING_COLOR_LIGHT,
         errorColor: DEFAULT_ERROR_COLOR_LIGHT,
+        isConfigurationSyncedToRemote: false,
       };
     case 'RESET_ALL':
       return initialState;
+    case 'SET_CONFIGURATION_SYNCED_TO_REMOTE':
+      return { ...state, isConfigurationSyncedToRemote: true };
     default:
       return state;
   }

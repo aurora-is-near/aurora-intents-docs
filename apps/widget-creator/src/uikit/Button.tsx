@@ -1,13 +1,13 @@
 import { Button as UIButton } from '@headlessui/react';
+import { Loader as LoaderIcon } from 'lucide-react';
 import type { LucideIcon, LucideProps } from 'lucide-react';
 import type { IconProps } from '@material-symbols-svg/react-rounded';
 import type { FC } from 'react';
-import * as Icons from 'lucide-react';
 
 import { cn as clsx } from '../utils/cn';
 
-type Size = 'sm' | 'md' | 'lg';
-type Variant = 'primary' | 'tertiary' | 'outlined';
+type Size = 'xs' | 'sm' | 'md' | 'lg';
+type Variant = 'primary' | 'tertiary' | 'outlined' | 'disabled';
 type State = 'default' | 'loading' | 'disabled' | 'active' | 'error';
 type Detail = 'default' | 'dimmed' | 'accent';
 
@@ -29,6 +29,7 @@ const styles = {
   icon: 'h-csw-xl w-csw-xl',
 
   size: (size: Size) => ({
+    'px-csw-2md py-csw-sm': size === 'xs',
     'px-csw-lg py-csw-2md': size === 'sm',
     'px-csw-2xl py-csw-lg': size === 'md',
     'px-csw-3xl py-csw-xl': size === 'lg',
@@ -67,7 +68,7 @@ const ButtonChildren = ({
     hasIcon && state !== 'loading'
       ? (icon ?? (() => <span />))
       : ({ className, ...lucidProps }: LucideProps) => (
-          <Icons.Loader
+          <LoaderIcon
             className={clsx(styles.icon, 'animate-spin', className)}
             {...lucidProps}
           />
@@ -179,10 +180,8 @@ export const OutlinedButton = ({
           'border-[1.5px] border-csw-gray-300 bg-csw-gray-800':
             state === 'active',
           'border border-csw-gray-700': state === 'default',
-          'cursor-not-allowed opacity-50 bg-transparent': [
-            'disabled',
-            'loading',
-          ].includes(state),
+          'cursor-not-allowed opacity-50 bg-transparent border-[1.5px] border-transparent':
+            ['disabled', 'loading'].includes(state),
           'text-csw-gray-950': detail === 'dimmed',
         },
         className,
@@ -194,12 +193,36 @@ export const OutlinedButton = ({
   );
 };
 
+const ButtonDisabled = ({
+  size,
+  children,
+  className,
+  fluid,
+  ...props
+}: Omit<Props, 'variant'>) => {
+  return (
+    <UIButton
+      disabled
+      className={clsx(
+        styles.common,
+        styles.width(fluid),
+        styles.size(size),
+        'cursor-not-allowed bg-csw-gray-800 text-csw-gray-500',
+        className,
+      )}>
+      <ButtonChildren {...props}>{children}</ButtonChildren>
+    </UIButton>
+  );
+};
+
 export const Button = ({ variant, ...restProps }: Props) => {
   switch (variant) {
     case 'tertiary':
       return <ButtonTertiary {...restProps} />;
     case 'outlined':
       return <OutlinedButton {...restProps} />;
+    case 'disabled':
+      return <ButtonDisabled {...restProps} />;
     case 'primary':
     default:
       return <ButtonPrimary {...restProps} />;

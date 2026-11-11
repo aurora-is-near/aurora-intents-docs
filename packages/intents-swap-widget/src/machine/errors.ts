@@ -1,14 +1,22 @@
 import type { Chains } from '@/types/chain';
 
+type UserDefinedRefundAddressError =
+  | { code: 'REFUND_ADDRESS_IS_EMPTY' }
+  | {
+      code: 'REFUND_ADDRESS_IS_INVALID';
+      meta: { address: string; chain: Chains };
+    };
+
 export type InitialDryStateError =
   | { code: 'SOURCE_TOKEN_IS_EMPTY' }
   | { code: 'TARGET_TOKEN_IS_EMPTY' }
   | { code: 'SOURCE_TOKEN_AMOUNT_IS_EMPTY' }
-  | { code: 'SOURCE_BALANCE_INSUFFICIENT' };
+  | { code: 'SOURCE_BALANCE_INSUFFICIENT' }
+  | UserDefinedRefundAddressError;
 
 export type InitialInternalStateError =
   | InitialDryStateError
-  | { code: 'SOURCE_TOKEN_NOT_INTENT' }
+  | { code: 'TARGET_TOKEN_NOT_INTENT' }
   | { code: 'INVALID_SOURCE_BALANCE' };
 
 type SendAddressValidationError =
@@ -24,6 +32,7 @@ type SendAddressValidationError =
 export type InitialExternalStateError =
   | InitialDryStateError
   | SendAddressValidationError
+  | UserDefinedRefundAddressError
   | { code: 'SOURCE_TOKEN_IS_INTENT' }
   | { code: 'INVALID_SOURCE_BALANCE' }
   | { code: 'SEND_ADDRESS_IS_EMPTY' }
@@ -35,6 +44,7 @@ export type InitialExternalStateError =
 export type InputValidDryError =
   | { code: 'NO_NEAR_TOKEN_FOUND'; meta: { symbol: string } }
   | { code: 'TOKEN_IS_NOT_SUPPORTED' }
+  | { code: 'QUOTE_PAIR_NOT_AVAILABLE' }
   | { code: 'QUOTE_FAILED'; meta: { message: string } }
   | { code: 'QUOTE_INVALID'; meta: { isDry: boolean } }
   | { code: 'QUOTE_INVALID_INITIAL'; meta: { isDry: boolean; message: string } }
@@ -58,6 +68,7 @@ export type QuoteSuccessTransferError =
   | { code: 'NO_QUOTE_FOUND' }
   | { code: 'NO_DEPOSIT_RESULT' }
   | { code: 'QUOTE_ERROR'; meta: { message: string } }
+  | { code: 'TRANSFER_REJECTED_UNKNOWN' }
   | { code: 'TRANSFER_INVALID_INITIAL'; meta: { message: string } }
   | { code: 'EXTERNAL_TRANSFER_FAILED' }
   | { code: 'EXTERNAL_TRANSFER_REFUNDED' }
@@ -97,6 +108,7 @@ export const TRANSFER_ERRORS: Array<
   'NO_QUOTE_FOUND',
   'NO_DEPOSIT_RESULT',
   'QUOTE_ERROR',
+  'TRANSFER_REJECTED_UNKNOWN',
   'TRANSFER_INVALID_INITIAL',
   'EXTERNAL_TRANSFER_FAILED',
   'EXTERNAL_TRANSFER_REFUNDED',

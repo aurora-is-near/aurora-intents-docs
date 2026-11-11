@@ -25,12 +25,12 @@ const NavigationItem = ({
   </UIButton>
 );
 
-export type NavigationTabs = 'embed-code' | 'api-keys';
+export type NavigationTabs = 'embed-code' | 'api-keys' | 'report';
 
 type Props = {
   className?: string;
   selected: NavigationTabs;
-  onSelect: (selected: 'embed-code' | 'api-keys') => void;
+  onSelect: (selected: NavigationTabs) => void;
 };
 
 export const Navigation = ({ selected, className, onSelect }: Props) => (
@@ -52,6 +52,13 @@ export const Navigation = ({ selected, className, onSelect }: Props) => (
           isActive={selected === 'api-keys'}
           onClick={() => onSelect('api-keys')}>
           API keys
+        </NavigationItem>
+      </li>
+      <li className="w-auto sm:w-full">
+        <NavigationItem
+          isActive={selected === 'report'}
+          onClick={() => onSelect('report')}>
+          Reports
         </NavigationItem>
       </li>
     </ul>

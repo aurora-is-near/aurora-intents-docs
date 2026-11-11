@@ -1,0 +1,88 @@
+import { cn } from '@/utils/cn';
+import { Card } from '@/components/Card';
+import { formatRelativeTime } from '@/utils/formatters/formatRelativeTime';
+import { TinyNumber } from '@/components/TinyNumber';
+import { getTransactionStatusLabel } from '@/utils/transactions/getTransactionStatusLabel';
+import { findTransactionToken } from '@/utils/transactions/findTransactionToken';
+import type { FakeTransaction, Transaction } from '@/types/transaction';
+import { TransactionStatusBadge } from './TransactionStatusBadge';
+import { TokenIcon } from '../../components';
+import { Token } from '../../types';
+
+type Props = {
+  tokens: Token[];
+  transaction: Transaction | FakeTransaction;
+  className?: string;
+  onClick: () => void;
+};
+
+export const TransactionCard = ({
+  tokens,
+  transaction: tx,
+  className,
+  onClick,
+}: Props) => {
+  const status = getTransactionStatusLabel(tx.status);
+  const time = formatRelativeTime(tx.createdAt);
+
+  const originToken = findTransactionToken(tokens, tx, 'source');
+  const destToken = findTransactionToken(tokens, tx, 'destination');
+
+  return (
+    <Card
+      isClickable
+      padding="none"
+      onClick={onClick}
+      className={cn('hover:bg-sw-gray-800 group', className)}>
+      <div className="px-sw-xl pt-sw-lg pb-sw-xl flex flex-col gap-x-sw-md">
+        {/* Header row */}
+        <div className="flex items-center justify-between mb-sw-lg">
+          <div className="flex items-center gap-x-sw-sm">
+            <span className="text-sw-label-md text-sw-gray-200">Swap</span>
+          </div>
+          <span className="text-sw-label-sm text-sw-gray-400">{time}</span>
+        </div>
+
+        {/* Token row + status */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-x-[10px]">
+            {!!originToken && (
+              <div className="flex items-center gap-x-sw-md">
+                <TokenIcon
+                  token={originToken}
+                  className="border-sw-gray-900 group-hover:border-sw-gray-800 transition-colors"
+                />
+                <span className="flex flex-col gap-sw-xxs text-sw-label-md text-sw-gray-50">
+                  <TinyNumber value={tx.amountInFormatted} />{' '}
+                  <span className="text-sw-label-sm text-sw-gray-300">
+                    {originToken.symbol}
+                  </span>
+                </span>
+              </div>
+            )}
+
+            {!!destToken && (
+              <>
+                <span className="text-sw-gray-200 text-sw-label-md">
+                  &rarr;
+                </span>
+                <div className="flex items-center gap-x-sw-md">
+                  <TokenIcon token={destToken} />
+                  <span className="flex flex-col gap-sw-xxs text-sw-label-md text-sw-gray-50">
+                    <TinyNumber value={tx.amountOutFormatted} />{' '}
+                    <span className="text-sw-label-sm text-sw-gray-300">
+                      {destToken.symbol}
+                    </span>
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Status badge */}
+          <TransactionStatusBadge status={status} />
+        </div>
+      </div>
+    </Card>
+  );
+};

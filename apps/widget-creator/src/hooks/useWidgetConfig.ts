@@ -1,32 +1,67 @@
 import { useMemo } from 'react';
-import { type WidgetConfig } from '@aurora-is-near/intents-swap-widget';
 import '@aurora-is-near/intents-swap-widget/styles.css';
 
+import type { SerializableWidgetConfig } from '@/api/types';
+import { getAllowedTokensList } from '@/utils/tokenSelection';
+import { getAllowedChainsList } from '@/utils/networkSelection';
+import { getConfigOverridesFromUrl } from '@/utils/get-url-param';
+import { getWidgetApiKey } from '@/utils/get-widget-api-key';
+import { useAvailableChains, useTokensGroupedBySymbol } from './useTokens';
 import { useCreator } from './useCreatorConfig';
-import { DEFAULT_APP_KEY, PLACEHOLDER_APP_KEY } from '@/constants';
+
+const configOverrides = getConfigOverridesFromUrl();
 
 export const useWidgetConfig = () => {
   const { state } = useCreator();
+  const allTokens = useTokensGroupedBySymbol();
+  const availableChains = useAvailableChains();
+  const widgetConfig = useMemo((): SerializableWidgetConfig => {
+    const allTokenSymbols = allTokens.map((token) => token.symbol);
 
-  const widgetConfig = useMemo(
-    (): Partial<WidgetConfig> => ({
-      appName: 'Near Intents',
-      apiKey:
-        // we don't want to expose our default app key to the exported code
-        // but want a widget to function in a studio so we swap them here
-        state.apiKey === PLACEHOLDER_APP_KEY ? DEFAULT_APP_KEY : state.apiKey,
-      enableAccountAbstraction: state.accountAbstractionMode === 'enabled',
-      allowedChainsList: state.selectedNetworks,
-      allowedTokensList: state.selectedTokenSymbols,
-      defaultSourceToken: state.enableSellToken
-        ? state.defaultSellToken
-        : undefined,
-      defaultTargetToken: state.enableBuyToken
+    const defaultSourceToken = state.enableSellToken
+      ? state.defaultSellToken
+      : undefined;
+
+    const defaultTargetToken =
+      state.enableBuyToken || state.widgetMode === 'deposit'
         ? state.defaultBuyToken
-        : undefined,
-    }),
-    [state],
-  );
+        : undefined;
+
+    const allowedTokensList = getAllowedTokensList(
+      state.selectedTokenSymbols,
+      allTokenSymbols,
+      [defaultSourceToken?.symbol, defaultTargetToken?.symbol],
+    );
+
+    return {
+      apiKey: getWidgetApiKey(state.apiKey),
+      connectedWallets: {},
+      slippageTolerance: 100,
+      confidentialMode: state.confidentialMode,
+      allowSwapWithExternalWallet: state.allowSwapWithExternalWallet,
+      enableAccountAbstraction: state.accountAbstractionMode === 'enabled',
+      enableAutoTokensSwitching: state.widgetMode !== 'deposit',
+      chainsOrder: state.selectedNetworks,
+      allowedChainsList: getAllowedChainsList(
+        state.selectedNetworks,
+        availableChains.map((chain) => chain.id),
+      ),
+      allowedTokensList,
+      defaultSourceToken,
+      sendAddress:
+        state.widgetMode === 'deposit' && state.depositModeReceiverAddress
+          ? state.depositModeReceiverAddress
+          : undefined,
+      defaultTargetToken,
+      hideTokenInputHeadings: state.hideTokenInputHeadings,
+      showTransactionHistory: true,
+      showConversionPreview: true,
+      extraQuoteParameters: {
+        ...state.extraQuoteParameters,
+        ...configOverrides?.extraQuoteParameters,
+      },
+    };
+  }, [allTokens, availableChains, state]);
 
   return { widgetConfig };
 };

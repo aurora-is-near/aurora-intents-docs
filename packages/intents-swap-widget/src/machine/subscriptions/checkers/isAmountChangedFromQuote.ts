@@ -1,13 +1,17 @@
-import { isTargetAmountChanged } from './isTargetAmountChanged';
 import { logger } from '@/logger';
 
 import type { Context, ContextChange } from '@/machine/context';
+import { isTargetAmountChanged } from './isTargetAmountChanged';
 
 export const isAmountChangedFromQuote = (
   ctx: Context,
   changes: ContextChange[],
   debug: boolean,
 ) => {
+  if (!ctx.quote || ctx.quote.type === 'QUOTE_DEPOSIT_ANY_AMOUNT') {
+    return false;
+  }
+
   if (isTargetAmountChanged(ctx, changes)) {
     const newTargetAmount = changes.find(
       (change) => change?.key === 'targetTokenAmount',

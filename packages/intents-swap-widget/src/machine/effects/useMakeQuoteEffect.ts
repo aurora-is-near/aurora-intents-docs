@@ -1,65 +1,52 @@
 import { useCallback, useEffect, useRef } from 'react';
 
-import { logger } from '../../logger';
-import { isDryQuote } from '../guards/checks/isDryQuote';
-import type { ListenerProps } from './types';
-
 import { useConfig } from '@/config';
 import { QuoteError } from '@/errors';
 import { fireEvent, moveTo } from '@/machine';
 import { guardStates } from '@/machine/guards';
 import { useMakeQuote } from '@/hooks/useMakeQuote';
-import { useMakeDepositAddress } from '@/hooks/useMakeDepositAddress';
 import { useComputedSnapshot, useUnsafeSnapshot } from '@/machine/snap';
 import { validateInputAndMoveTo } from '@/machine/events/validateInputAndMoveTo';
-import type { FetchQuoteOptions, Quote } from '@/types/quote';
+import type { FetchQuoteOptions } from '@/types/quote';
+
+import { logger } from '../../logger';
+import { isDryQuote } from '../guards/checks/isDryQuote';
+import type { ListenerProps } from './types';
 
 export type Props = ListenerProps & {
-  message?: string;
   type?: 'exact_in' | 'exact_out';
   refetchQuoteInterval?: number;
 };
 
 export const useMakeQuoteEffect = ({
   isEnabled,
-  message,
   type: quoteType = 'exact_in',
   refetchQuoteInterval,
 }: Props) => {
   const { ctx } = useUnsafeSnapshot();
+  const { isNativeNearDeposit } = useComputedSnapshot();
   const { apiKey, fetchQuote } = useConfig();
-  const {
-    isNativeNearDeposit,
-    isDirectNonNearWithdrawal,
-    isDirectTokenOnNearDeposit,
-    isDirectNearTokenWithdrawal,
-    isDirectTokenOnNearTransfer,
-    isSameAssetDiffChainWithdrawal,
-  } = useComputedSnapshot();
 
   const isDry = isDryQuote(ctx);
 
+  // technically valid cases for 1Click but the ones
+  // we want to block here from the product perspective
+  const isBlocked =
+    ctx.isDepositFromExternalWallet && !!ctx.sourceToken?.isIntent;
+
   const shouldRun =
     isEnabled &&
-    (!!fetchQuote || (!!apiKey && !fetchQuote)) &&
+    !isBlocked &&
+    !isNativeNearDeposit &&
     !ctx.areInputsValidating &&
-    (isSameAssetDiffChainWithdrawal ||
-      ((isDirectTokenOnNearDeposit || isNativeNearDeposit) &&
-        ctx.isDepositFromExternalWallet) ||
-      (!isDirectNearTokenWithdrawal &&
-        !isDirectNonNearWithdrawal &&
-        !isDirectTokenOnNearDeposit &&
-        !isDirectTokenOnNearTransfer));
+    (!!fetchQuote || (!!apiKey && !fetchQuote));
 
   const { make: makeQuote, cancel: cancelQuote } = useMakeQuote();
-  const { make: makeDepositAddress, cancel: cancelDepositAddress } =
-    useMakeDepositAddress();
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const cancel = () => {
     cancelQuote();
-    cancelDepositAddress();
   };
 
   // cancels any ongoing quote request if input becomes invalid
@@ -68,7 +55,9 @@ export const useMakeQuoteEffect = ({
     const isValidExternalInput = guardStates(ctx, ['input_valid_external']);
     const isValidInternalInput = guardStates(ctx, ['input_valid_internal']);
 
-    if (isDry && !isValidDryInput) {
+    if (isBlocked) {
+      cancel();
+    } else if (isDry && !isValidDryInput) {
       cancel();
     } else if (!isDry && ctx.targetToken?.isIntent && !isValidInternalInput) {
       cancel();
@@ -77,29 +66,20 @@ export const useMakeQuoteEffect = ({
     } else if (ctx.areInputsValidating) {
       cancel();
     }
-  }, [cancel, isDry, ctx]);
+  }, [cancel, isBlocked, isDry, ctx]);
 
   const run = useCallback(
     async (options: FetchQuoteOptions) => {
+      if (!shouldRun) {
+        return;
+      }
+
       try {
-        let quote: Quote | undefined;
-
-        if (
-          ctx.sourceToken?.assetId === ctx.targetToken?.assetId ||
-          (isNativeNearDeposit && ctx.isDepositFromExternalWallet)
-        ) {
-          if (isDry) {
-            // since here it's not a real quote but just a deposit address generation
-            // we don't want to run it for dry runs
-            return;
-          }
-
+        if (!options.isRefetch) {
           fireEvent('quoteSetStatus', 'pending');
-          quote = await makeDepositAddress();
-        } else {
-          fireEvent('quoteSetStatus', 'pending');
-          quote = await makeQuote({ message, quoteType, options });
         }
+
+        const quote = await makeQuote({ quoteType, options });
 
         if (!quote) {
           return;
@@ -113,10 +93,12 @@ export const useMakeQuoteEffect = ({
           fireEvent('errorSet', null);
         }
 
-        fireEvent('tokenSetAmount', {
-          variant: 'target',
-          amount: quote.amountOut,
-        });
+        if (quote.type !== 'QUOTE_DEPOSIT_ANY_AMOUNT') {
+          fireEvent('tokenSetAmount', {
+            variant: 'target',
+            amount: quote.amountOut,
+          });
+        }
 
         if (ctx.state === 'input_valid_dry') {
           moveTo('quote_success_dry');
@@ -158,7 +140,7 @@ export const useMakeQuoteEffect = ({
         });
       }
     },
-    [ctx, isDry, makeDepositAddress, makeQuote, message, quoteType, shouldRun],
+    [ctx, isDry, makeQuote, quoteType, shouldRun],
   );
 
   useEffect(() => {
@@ -180,13 +162,61 @@ export const useMakeQuoteEffect = ({
       return;
     }
 
-    // not used for depositing native Near token without QR code
-    if (isNativeNearDeposit && !ctx.isDepositFromExternalWallet) {
+    void run({ isRefetch: false });
+  }, [shouldRun, run, cancel, ctx.sourceToken, ctx.targetToken]);
+
+  const resetAndRefetch = () => {
+    if (!shouldRun) {
       return;
     }
 
-    void run({ isRefetch: false });
-  }, [shouldRun, run, cancel, ctx.sourceToken, ctx.targetToken]);
+    const isValidState = guardStates(ctx, [
+      'quote_success_dry',
+      'quote_success_internal',
+      'quote_success_external',
+    ]);
+
+    if (!isValidState) {
+      return;
+    }
+
+    const isDryRun = guardStates(ctx, ['quote_success_dry']);
+    const isInternalQuote = guardStates(ctx, ['quote_success_internal']);
+    const isExternalQuote = guardStates(ctx, ['quote_success_external']);
+
+    fireEvent('quoteReset', null);
+    fireEvent('transferSetStatus', { status: 'idle' });
+    fireEvent('setInputsValidating', false);
+
+    if (isDryRun) {
+      moveTo('input_valid_dry');
+    } else if (isInternalQuote) {
+      moveTo('input_valid_internal');
+    } else if (isExternalQuote) {
+      moveTo('input_valid_external');
+    }
+
+    void run({ isRefetch: true });
+  };
+
+  // Held in a ref so the debounced refetch below runs against the context of the
+  // render it fires in, rather than the one that started the timer.
+  const resetAndRefetchRef = useRef(resetAndRefetch);
+
+  resetAndRefetchRef.current = resetAndRefetch;
+
+  useEffect(() => {
+    resetAndRefetch();
+  }, [ctx.confidentialMode]);
+
+  useEffect(() => {
+    const timeout = setTimeout(
+      () => resetAndRefetchRef.current(),
+      1000, // debounce to avoid spamming quote requests while the user is typing
+    );
+
+    return () => clearTimeout(timeout);
+  }, [ctx.maxSlippage]);
 
   // Refetch if an interval is set and a quote was successful
   useEffect(() => {
@@ -198,6 +228,7 @@ export const useMakeQuoteEffect = ({
     };
 
     if (
+      !shouldRun ||
       (ctx.state !== 'quote_success_internal' &&
         ctx.state !== 'quote_success_external') ||
       !refetchQuoteInterval

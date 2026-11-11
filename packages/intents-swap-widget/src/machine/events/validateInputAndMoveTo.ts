@@ -1,11 +1,11 @@
+import { moveTo } from '@/machine';
+import type { Context } from '@/machine/context';
+import { isDryQuote } from '@/machine/guards/checks/isDryQuote';
 import {
   validateDryInputs,
   validateExternalInputs,
   validateInternalInputs,
 } from './validateInputs';
-import { moveTo } from '@/machine';
-import type { Context } from '@/machine/context';
-import { isDryQuote } from '@/machine/guards/checks/isDryQuote';
 
 export const validateInputAndMoveTo = (ctx: Context) => {
   const isDryRun = isDryQuote(ctx);
@@ -24,6 +24,6 @@ export const validateInputAndMoveTo = (ctx: Context) => {
   } else if (isInternal && validateInternalInputs(ctx)) {
     moveTo('input_valid_internal');
   } else {
-    moveTo('initial_wallet');
+    moveTo(ctx.walletAddress ? 'initial_wallet' : 'initial_dry');
   }
 };

@@ -1,6 +1,6 @@
-import { WalletAddresses } from '../../types';
 import type { Chains } from '@/types/chain';
 import type { ValueOf } from '@/types/utils';
+import { WalletAddresses } from '../../types';
 
 export const CHAINS_MAP = {
   eth: 'eth-mainnet',
@@ -12,7 +12,9 @@ export const CHAINS_MAP = {
   op: 'opt-mainnet',
   pol: 'matic-mainnet',
   sol: 'solana-mainnet',
-  // btc: 'bitcoin-mainnet'
+  monad: 'monad-mainnet',
+  scroll: 'scroll-mainnet',
+  hood: 'robinhood-mainnet',
 } as const satisfies Partial<Record<Chains, string>>;
 
 export const isAlchemySupportedChain = (

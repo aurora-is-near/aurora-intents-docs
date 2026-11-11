@@ -1,10 +1,12 @@
 /* eslint-disable import/extensions */
 import { ReactElement, SVGAttributes } from 'react';
+import type { Chains } from '@/types/chain';
 import AbgIcon from './abg.svg';
 import AdaIcon from './ada.svg';
-import AdiIcon from './adi.svg';
+import { AdiIcon } from './AdiIcon';
 import ArbIcon from './arb.svg';
-import AsterIcon from './aster.svg';
+import { AsterIcon } from './AsterIcon';
+import AuroraIcon from './aurora.svg';
 import AvaxIcon from './avax.svg';
 import BaseIcon from './base.svg';
 import BeraIcon from './bera.svg';
@@ -27,7 +29,8 @@ import MonIcon from './mon.svg';
 import MpdaoIcon from './mpdao.svg';
 import NearIcon from './near.svg';
 import NoearIcon from './noear.svg';
-import NproIcon from './npro.svg';
+import { NproIcon } from './NproIcon';
+import OkbIcon from './okb.svg';
 import OpIcon from './op.svg';
 import PolIcon from './pol.svg';
 import PublicIcon from './public.svg';
@@ -39,6 +42,7 @@ import TonIcon from './ton.svg';
 import TronIcon from './tron.svg';
 import UnknownIcon from './unknown.svg';
 import Usd1Icon from './usd1.svg';
+import UsadIcon from './usad.svg';
 import UsdcIcon from './usdc.svg';
 import UsdfIcon from './usdf.svg';
 import UsdtIcon from './usdt.svg';
@@ -48,10 +52,24 @@ import XbtcIcon from './xbtc.svg';
 import XdaiIcon from './xdai.svg';
 import XrpIcon from './xrp.svg';
 import ZecIcon from './zec.svg';
+import QtcIcon from './qtc.svg';
+import StellarIcon from './stellar.svg';
+import AleoIcon from './aleo.svg';
+import BchIcon from './bch.svg';
+import DashIcon from './dash.svg';
+import PlasmaIcon from './plasma.svg';
+import ScrollIcon from './scroll.svg';
+import { StarknetIcon } from './StarknetIcon';
+import XlayerIcon from './xlayer.svg';
+import HypercoreIcon from './hypercore.svg';
+import HoodIcon from './hood.svg';
+import NearIntentsIcon from './intents.svg';
 
-import type { Chains } from '@/types/chain';
+export { MaskPrivacy } from './MaskPrivacy';
+export type { MaskPrivacyProps } from './MaskPrivacy';
 
 export const UNKNOWN_ICON: React.ReactElement = <UnknownIcon />;
+export const NEAR_INTENTS_ICON: React.ReactElement = <NearIntentsIcon />;
 
 export const CHAIN_ICONS: Record<
   Chains,
@@ -77,6 +95,20 @@ export const CHAIN_ICONS: Record<
   near: <NearIcon />,
   ltc: <LtcIcon />,
   cardano: <CardanoIcon />,
+  stellar: <StellarIcon />,
+  monad: <MonIcon />,
+  adi: <AdiIcon />,
+  aleo: <AleoIcon />,
+  bch: <BchIcon />,
+  dash: <DashIcon />,
+  plasma: <PlasmaIcon />,
+  scroll: <ScrollIcon />,
+  starknet: <StarknetIcon />,
+  xlayer: <XlayerIcon />,
+  hood: <HoodIcon />,
+  aurora: <AuroraIcon />,
+  hypercore: <HypercoreIcon />,
+  qtc: <QtcIcon />,
 };
 
 export const ASSET_ICONS: Record<string, React.ReactElement> = {
@@ -96,6 +128,7 @@ export const ASSET_ICONS: Record<string, React.ReactElement> = {
   doge: <DogeIcon />,
   eth: <EthIcon />,
   frax: <FraxIcon />,
+  qtc: <QtcIcon />,
   gnear: <GnearIcon />,
   gnosis: <GnosisIcon />,
   itlx: <ItlxIcon />,
@@ -108,6 +141,7 @@ export const ASSET_ICONS: Record<string, React.ReactElement> = {
   near: <NearIcon />,
   noear: <NoearIcon />,
   npro: <NproIcon />,
+  okb: <OkbIcon />,
   op: <OpIcon />,
   pol: <PolIcon />,
   public: <PublicIcon />,
@@ -117,8 +151,10 @@ export const ASSET_ICONS: Record<string, React.ReactElement> = {
   sui: <SuiIcon />,
   ton: <TonIcon />,
   tron: <TronIcon />,
+  usad: <UsadIcon />,
   usd1: <Usd1Icon />,
   usdc: <UsdcIcon />,
+  usdcx: <UsdcIcon />,
   usdf: <UsdfIcon />,
   usdt: <UsdtIcon />,
   unknown: <UnknownIcon />,
@@ -128,4 +164,10 @@ export const ASSET_ICONS: Record<string, React.ReactElement> = {
   xdai: <XdaiIcon />,
   xrp: <XrpIcon />,
   zec: <ZecIcon />,
+  xlm: <StellarIcon />,
+  aleo: <AleoIcon />,
+  bch: <BchIcon />,
+  dash: <DashIcon />,
+  strk: <StarknetIcon />,
+  xpl: <PlasmaIcon />,
 };

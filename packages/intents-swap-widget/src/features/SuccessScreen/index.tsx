@@ -1,63 +1,98 @@
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowDownward,
-  Check,
   OpenInNew,
 } from '@material-symbols-svg/react-rounded/w700';
 
-import { TokenRow } from './TokenRow';
-import { CopyableValue } from './CopyableValue';
-import { useSummaryItemsCount } from './useSummaryItemsCount';
-
 import { Notes } from '@/components/Notes';
 import { Button } from '@/components/Button';
+import { Banner } from '@/components/Banner';
 import { CloseButton } from '@/components/CloseButton';
 import { Accordion } from '@/components/Accordion';
+import { TransactionStatusBadge } from '@/features/TransactionHistory/TransactionStatusBadge';
 
 import { guardStates } from '@/machine/guards';
 import { useUnsafeSnapshot } from '@/machine/snap';
 import { formatUsdAmount } from '@/utils/formatters/formatUsdAmount';
 import { formatTinyNumber } from '@/utils/formatters/formatTinyNumber';
 import { formatBigToHuman } from '@/utils/formatters/formatBigToHuman';
+import { getTransactionStatusLabel } from '@/utils/transactions/getTransactionStatusLabel';
 import { useTypedTranslation } from '@/localisation';
 import { useHandleKeyDown } from '@/hooks';
 import { logger } from '@/logger';
 
+import type { TransactionStatus, TransactionType } from '@/types/transaction';
 import type { TransferResult } from '@/types/transfer';
+import { useTransferResultStatus } from './useTransferResultStatus';
+import { useSummaryItemsCount } from './useSummaryItemsCount';
+import { CopyableValue } from './CopyableValue';
+import { TokenRow } from './TokenRow';
 
-const NOTES_ITEM_HEIGHT = 44;
+const NOTES_ITEM_HEIGHT = 33;
 
 type Msg = { type: 'on_dismiss_success' };
 
 type Props = TransferResult & {
-  title: string;
+  transactionType?: TransactionType;
   message?: string;
   showTargetToken?: boolean;
+  backButtonLabel?: string;
   onMsg: (msg: Msg) => void;
 };
 
-export const SuccessScreen = ({
-  title,
-  message,
-  showTargetToken = true,
-  transactionLink,
-  onMsg,
-  ...transferResult
-}: Props) => {
-  const { t } = useTypedTranslation();
+const getAmounts = ({
+  amount,
+  amountUsd,
+  decimals,
+  price,
+}: {
+  amount: string;
+  amountUsd: string | undefined;
+  decimals: number;
+  price: number;
+}) => {
+  const sourceAmount = formatBigToHuman(amount, decimals);
+  const sourceAmountUsd = amountUsd
+    ? parseFloat(amountUsd)
+    : price * parseFloat(sourceAmount);
+
+  return {
+    amount: sourceAmount,
+    amountUsd: sourceAmountUsd,
+  };
+};
+
+const useAnyDepositAmounts = (
+  transferResult:
+    | Pick<
+        TransferResult,
+        'amount' | 'amountUsd' | 'amountOut' | 'amountOutUsd'
+      >
+    | undefined,
+) => {
   const { ctx } = useUnsafeSnapshot();
 
-  const isValidState = guardStates(ctx, ['transfer_success']);
-  const handleClose = () => onMsg({ type: 'on_dismiss_success' });
-  const summaryItemsCount = useSummaryItemsCount(!!transferResult.intent);
+  if (
+    !ctx.quote ||
+    !transferResult?.amount ||
+    ctx.quote.type !== 'QUOTE_DEPOSIT_ANY_AMOUNT'
+  ) {
+    return undefined;
+  }
 
-  useHandleKeyDown('Escape', handleClose);
+  return getAmounts({
+    amount: transferResult.amount,
+    amountUsd: transferResult.amountUsd,
+    decimals: ctx.sourceToken.decimals,
+    price: ctx.sourceToken.price,
+  });
+};
 
-  if (!isValidState) {
-    logger.warn(
-      '[WIDGET] Success screen can be rendered only in transfer_success state',
-    );
+const useQuoteAmounts = () => {
+  const { ctx } = useUnsafeSnapshot();
 
-    return null;
+  if (!ctx.quote || ctx.quote.type === 'QUOTE_DEPOSIT_ANY_AMOUNT') {
+    return undefined;
   }
 
   const sourceAmount = formatBigToHuman(
@@ -84,41 +119,174 @@ export const SuccessScreen = ({
     targetTokenUnitPrice / (parseFloat(sourceAmount) / sourceAmountUsd),
   );
 
+  return {
+    sourceAmount,
+    targetAmount,
+    sourceAmountUsd,
+    targetAmountUsd,
+    targetTokenUnitPrice,
+    sourceTokenUnitAmount,
+  };
+};
+
+export const SuccessScreen = ({
+  transactionType = 'SWAP',
+  message,
+  showTargetToken = true,
+  transactionLink,
+  backButtonLabel,
+  onMsg,
+  ...transferResult
+}: Props) => {
+  const { t } = useTypedTranslation();
+  const { ctx } = useUnsafeSnapshot();
+
+  const isValidState = guardStates(ctx, ['transfer_success']);
+  const summaryItemsCount = useSummaryItemsCount(!!transferResult.intent);
+
+  const quoteAmounts = useQuoteAmounts();
+  const anyDepositAmounts = useAnyDepositAmounts(transferResult);
+
+  const stuckResolutionTimer = useRef<NodeJS.Timeout | null>(null);
+  const [isResolutionStuck, setIsResolutionStuck] = useState(false);
+
+  const status = useTransferResultStatus(transferResult, {
+    disabled: isResolutionStuck,
+  });
+
+  // If the transfer is still pending after 30 seconds, or processing after a
+  // cumulative 30 seconds, consider it "stuck" and show a warning message to
+  // the user. This is to cover the case where an optimistic status update
+  // cannot be matched with a real transaction, as well as very long-running
+  // transactions, or slow API responses.
+  useEffect(() => {
+    if (
+      isResolutionStuck ||
+      !(status === 'PENDING' || status === 'PROCESSING')
+    ) {
+      return;
+    }
+
+    if (stuckResolutionTimer.current) {
+      clearTimeout(stuckResolutionTimer.current);
+    }
+
+    stuckResolutionTimer.current = setTimeout(
+      () => setIsResolutionStuck(true),
+      30_000,
+    );
+
+    return () => {
+      if (stuckResolutionTimer.current) {
+        clearTimeout(stuckResolutionTimer.current);
+      }
+    };
+  }, [status]);
+
+  const effectiveStatus: TransactionStatus = isResolutionStuck
+    ? 'UNRESOLVED'
+    : status;
+
+  const statusLabel = getTransactionStatusLabel(
+    effectiveStatus,
+    transactionType,
+  );
+
+  const handleClose = () => onMsg({ type: 'on_dismiss_success' });
+
+  useHandleKeyDown('Escape', handleClose);
+
+  if (!isValidState) {
+    logger.warn(
+      '[WIDGET] Success screen can be rendered only in transfer_success state',
+    );
+
+    return null;
+  }
+
+  const showTargetTokenRow =
+    showTargetToken && ctx.sourceToken.symbol !== ctx.targetToken.symbol;
+
   return (
-    <div className="flex flex-col gap-sw-2xl w-full">
-      <header className="flex items-center gap-sw-lg">
-        <div className="flex items-center justify-center p-sw-md bg-sw-status-success rounded-sw-md">
-          <Check size={20} className="text-sw-gray-900" />
-        </div>
-        <span className="text-sw-label-lg text-sw-status-success mr-auto">
-          {title}
-        </span>
+    <div className="flex flex-col gap-sw-lg w-full">
+      <header className="flex items-center justify-between">
+        <TransactionStatusBadge variant="title" status={statusLabel} />
         <CloseButton onClick={handleClose} />
       </header>
 
-      {!!message && (
-        <p className="text-sw-body-md text-sw-gray-200">{message}</p>
+      {!!message && <Banner multiline variant="info" message={message} />}
+
+      {isResolutionStuck && (
+        <Banner
+          multiline
+          variant="warn"
+          message={
+            ctx.confidentialMode === 'confidential'
+              ? t(
+                  'transfer.success.statusUnresolvedConfidential',
+                  'Resolving the status of your swap is taking longer than usual. Please check your wallet for the latest state.',
+                )
+              : t(
+                  'transfer.success.statusUnresolved',
+                  'Resolving the status of your swap is taking longer than usual. Please check the explorer or your wallet for the latest state.',
+                )
+          }
+        />
       )}
 
       <div className="flex flex-col">
-        <TokenRow
-          token={ctx.sourceToken}
-          amount={sourceAmount}
-          amountUsd={sourceAmountUsd}
-        />
-        {showTargetToken && (
-          <>
-            <div className="flex items-center justify-center w-full h-[12px] z-1">
-              <div className="flex items-center justify-center p-sw-md bg-sw-gray-950 rounded-sw-md w-fit">
-                <ArrowDownward size={18} className="text-sw-gray-200" />
-              </div>
+        {/* eslint-disable-next-line no-nested-ternary */}
+        {anyDepositAmounts ? (
+          <TokenRow
+            token={ctx.sourceToken}
+            amount={anyDepositAmounts.amount}
+            amountUsd={anyDepositAmounts.amountUsd}
+          />
+        ) : quoteAmounts ? (
+          <TokenRow
+            token={ctx.sourceToken}
+            amount={quoteAmounts.sourceAmount}
+            amountUsd={quoteAmounts.sourceAmountUsd}
+          />
+        ) : (
+          <TokenRow
+            token={ctx.sourceToken}
+            {...getAmounts({
+              amountUsd: undefined,
+              amount: ctx.sourceTokenAmount,
+              decimals: ctx.sourceToken.decimals,
+              price: ctx.sourceToken.price,
+            })}
+          />
+        )}
+
+        {showTargetTokenRow && (!!quoteAmounts || anyDepositAmounts) && (
+          <div className="flex items-center justify-center w-full h-[12px] z-1">
+            <div className="flex items-center justify-center p-sw-md bg-sw-gray-950 rounded-sw-md w-fit">
+              <ArrowDownward size={18} className="text-sw-gray-200" />
             </div>
+          </div>
+        )}
+
+        {showTargetTokenRow && anyDepositAmounts ? (
+          <TokenRow
+            token={ctx.targetToken}
+            {...getAmounts({
+              amountUsd: transferResult.amountOutUsd,
+              amount: transferResult.amountOut ?? '0',
+              decimals: ctx.targetToken.decimals,
+              price: ctx.targetToken.price,
+            })}
+          />
+        ) : (
+          showTargetTokenRow &&
+          quoteAmounts && (
             <TokenRow
               token={ctx.targetToken}
-              amount={targetAmount}
-              amountUsd={targetAmountUsd}
+              amount={quoteAmounts.targetAmount}
+              amountUsd={quoteAmounts.targetAmountUsd}
             />
-          </>
+          )
         )}
       </div>
 
@@ -126,24 +294,26 @@ export const SuccessScreen = ({
         expandedByDefault={false}
         expandedHeightPx={
           // edge case if only Rate is present
-          summaryItemsCount === 1 ? 52 : summaryItemsCount * NOTES_ITEM_HEIGHT
+          summaryItemsCount === 1 ? 38 : summaryItemsCount * NOTES_ITEM_HEIGHT
         }
         title={t('transfer.success.details.label', 'Transaction details')}>
         <Notes>
-          {ctx.sourceToken.symbol !== ctx.targetToken.symbol && (
-            <Notes.Item
-              label={t('transfer.success.details.rate', 'Rate')}
-              value={
-                <span
-                  className="text-sw-gray-50"
-                  style={{ borderBottomWidth: '2px', borderStyle: 'dotted' }}>
-                  {`1 ${ctx.targetToken.symbol} ≈ `} {sourceTokenUnitAmount}{' '}
-                  {`${ctx.sourceToken.symbol}`}
-                  <span>{` (${formatUsdAmount(targetTokenUnitPrice)})`}</span>
-                </span>
-              }
-            />
-          )}
+          {ctx.sourceToken.symbol !== ctx.targetToken.symbol &&
+            quoteAmounts && (
+              <Notes.Item
+                label={t('transfer.success.details.rate', 'Rate')}
+                value={
+                  <span
+                    className="text-sw-gray-50"
+                    style={{ borderBottomWidth: '2px', borderStyle: 'dotted' }}>
+                    {`1 ${ctx.targetToken.symbol} ≈ `}{' '}
+                    {quoteAmounts.sourceTokenUnitAmount}{' '}
+                    {`${ctx.sourceToken.symbol}`}
+                    <span>{` (${formatUsdAmount(quoteAmounts.targetTokenUnitPrice)})`}</span>
+                  </span>
+                }
+              />
+            )}
           {/* send address is missing if target token is on intents */}
           {!!ctx.sendAddress && (
             <Notes.Item
@@ -168,19 +338,27 @@ export const SuccessScreen = ({
       </Accordion>
 
       <div className="flex flex-col gap-sw-lg">
-        <Button
-          fluid
-          as="a"
-          size="lg"
-          target="_blank"
-          variant="primary"
-          iconPosition="tail"
-          href={transactionLink}
-          icon={OpenInNew}>
-          {t('transfer.success.action.viewOnExplorer', 'View in explorer')}
-        </Button>
+        {ctx.confidentialMode !== 'confidential' && (
+          <Button
+            fluid
+            as="a"
+            size="lg"
+            target="_blank"
+            variant="primary"
+            iconPosition="tail"
+            href={transactionLink}
+            state={
+              transactionLink && effectiveStatus !== 'PENDING'
+                ? 'default'
+                : 'disabled'
+            }
+            icon={OpenInNew}>
+            {t('transfer.success.action.viewOnExplorer', 'View in explorer')}
+          </Button>
+        )}
         <Button fluid size="lg" variant="outlined" onClick={handleClose}>
-          {t('transfer.success.action.backToSwap', 'Back to swap')}
+          {backButtonLabel ??
+            t('transfer.success.action.backToSwap', 'Back to swap')}
         </Button>
       </div>
     </div>

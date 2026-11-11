@@ -1,3 +1,6 @@
+import { ASSET_ICONS } from '@aurora-is-near/intents-swap-widget';
+import { useEffect, useState } from 'react';
+
 import { ToggleOnly } from '../../uikit/Toggle';
 import { TokenTag } from '../../uikit/TokenTag';
 import { TokenType } from '../../hooks/useTokens';
@@ -15,23 +18,35 @@ export function TokenRow({
   onToggle,
   isDisabled = false,
 }: TokenRowProps) {
-  const tokenIcon = token.icon ? (
-    <img
-      src={token.icon}
-      alt={token.symbol}
-      className="size-full rounded-full"
-    />
-  ) : undefined;
+  const [isTokenIconBroken, setIsTokenIconBroken] = useState(false);
 
-  const tokenSymbol =
-    token.symbol.toLowerCase() === 'wnear' ? 'NEAR' : token.symbol;
+  useEffect(() => {
+    setIsTokenIconBroken(false);
+  }, [token.icon]);
+
+  const isWrappedNear = token.symbol.toLowerCase() === 'wnear';
+  const assetIconKey = isWrappedNear ? 'near' : token.symbol.toLowerCase();
+  let tokenIcon = ASSET_ICONS[assetIconKey] ?? undefined;
+
+  if (token.icon && !isTokenIconBroken) {
+    tokenIcon = (
+      <img
+        src={token.icon}
+        alt={token.symbol}
+        className="size-full rounded-full"
+        onError={() => setIsTokenIconBroken(true)}
+      />
+    );
+  }
+
+  const tokenSymbol = isWrappedNear ? 'NEAR' : token.symbol;
 
   return (
     <div
-      className={`flex items-center justify-between px-csw-md py-csw-md bg-csw-gray-800 rounded-csw-md transition-colors ${
+      className={`flex items-center justify-between px-csw-md py-csw-sm bg-csw-gray-900 rounded-csw-md transition-colors ${
         isDisabled
           ? 'opacity-40 cursor-not-allowed'
-          : 'hover:bg-csw-gray-700 transition-colors cursor-pointer'
+          : 'hover:bg-csw-gray-800 transition-colors cursor-pointer'
       }`}
       onClick={() => !isDisabled && onToggle()}>
       <TokenTag
@@ -42,6 +57,7 @@ export function TokenRow({
 
       {/* Toggle Switch */}
       <ToggleOnly
+        size="sm"
         isEnabled={isSelected}
         onChange={() => !isDisabled && onToggle()}
       />

@@ -1,5 +1,4 @@
 @import 'tailwindcss';
-@import '@aurora-is-near/intents-swap-widget/styles.css';
 
 #root {
     height: 100vh;
@@ -9,9 +8,6 @@
     --spacing-*: initial;
     --radius-*: initial;
     --color-*: initial;
-
-    /* Fonts */
-    --font-display: 'Inter', sans-serif;
 
     /* Radius */
     --radius-none: 0;
@@ -76,6 +72,11 @@
 }
 
 @layer base {
+    body {
+      font-family: 'Inter', sans-serif;
+      font-feature-settings: 'liga' 1, 'calt' 1;
+    }
+
     .hide-scrollbar {
         -ms-overflow-style: none;
         scrollbar-width: none;
@@ -83,6 +84,11 @@
 
     .hide-scrollbar::-webkit-scrollbar {
         display: none;
+    }
+
+    /* disable mynearwallet & okx-wallet from hot-wallet-connector */
+    [data-type='mynearwallet'], [data-type='okx-wallet'] {
+      display:none !important;
     }
 }
 
@@ -93,6 +99,7 @@
 
   .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
+    height: 6px;
   }
 
   .custom-scrollbar::-webkit-scrollbar-track {

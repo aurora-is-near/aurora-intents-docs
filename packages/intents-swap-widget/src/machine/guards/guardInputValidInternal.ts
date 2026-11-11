@@ -1,8 +1,9 @@
-import { isBalanceSufficient } from './checks/isBalanceSufficient';
 import { isNotEmptyAmount } from '@/utils/checkers/isNotEmptyAmount';
 
 import type { Context, InputValidInternalContext } from '@/machine/context';
+import { isBalanceSufficient } from './checks/isBalanceSufficient';
 
+// Internal -- target token IS intent
 export const guardInputValidInternal = (
   ctx: Context,
 ): ctx is InputValidInternalContext => {
@@ -16,6 +17,6 @@ export const guardInputValidInternal = (
     !!ctx.targetToken &&
     ctx.targetToken.isIntent &&
     (isBalanceSufficient(ctx) || ctx.isDepositFromExternalWallet) &&
-    isNotEmptyAmount(ctx.sourceTokenAmount)
+    (isNotEmptyAmount(ctx.sourceTokenAmount) || ctx.isDepositFromExternalWallet)
   );
 };

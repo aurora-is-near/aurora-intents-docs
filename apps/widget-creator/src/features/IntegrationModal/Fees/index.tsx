@@ -3,40 +3,58 @@ import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 
-import { FeeInput } from './FeeInput';
-import { FeesSummary } from './FeesSummary';
-
-import { NestedHeader } from '../components';
-import {
-  getBasisPointsFromPercent,
-  getPercentFromBasisPoints,
-  getSimpleValueBasedFee,
-  isZeroValueBasedFee,
-  validateFeeConfig,
-} from '../utils';
-
 import { Button } from '@/uikit/Button';
 import { TextInput } from '@/uikit/TextInput';
 import { TextAreaInput } from '@/uikit/TextAreaInput';
 import { ExpandableToggleCard } from '@/uikit/ToggleCard';
+import { InfoBanner } from '@/components/InfoBanner';
 import { useUpdateApiKey } from '@/api/hooks';
 import { DEFAULT_ZERO_FEE } from '@/constants';
 import type { ApiKey } from '@/api/types';
+import { NestedHeader } from '../components';
+import {
+  getAuroraFeeConfig,
+  getBasicFeeConfig,
+  getBasisPointsFromPercent,
+  getFeeShare,
+  getPercentFromBasisPoints,
+  getRecipientErrorFromJson,
+  getSimpleValueBasedFee,
+  isZeroValueBasedFee,
+  validateFeeConfig,
+} from '../utils';
+import { FeesSummary } from './FeesSummary';
+import { FeeInput } from './FeeInput';
 
-const formSchema = z.object({
-  walletAddress: z.string().min(1, 'Wallet address is required'),
-  customFee: z.string().min(0.00001, 'Custom fee is required'),
-  feeJson: z
-    .string()
-    .min(1, 'JSON configuration is required')
-    .superRefine((data, ctx) => {
-      const { error } = validateFeeConfig(data);
+const formSchema = z
+  .object({
+    walletAddress: z.string().min(1, 'Wallet address is required'),
+    customFee: z.string().min(0.00001, 'Custom fee is required'),
+    feeJson: z.string().min(1, 'JSON configuration is required'),
+  })
+  .superRefine(({ feeJson }, ctx) => {
+    const { error } = validateFeeConfig(feeJson);
 
-      if (error) {
-        ctx.addIssue({ code: 'custom', message: error });
-      }
-    }),
-});
+    if (!error) {
+      return;
+    }
+
+    ctx.addIssue({
+      code: 'custom',
+      path: ['feeJson'],
+      message: error,
+    });
+
+    const walletAddressError = getRecipientErrorFromJson(error);
+
+    if (walletAddressError) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['walletAddress'],
+        message: walletAddressError,
+      });
+    }
+  });
 
 type FormValues = z.infer<typeof formSchema>;
 
@@ -45,9 +63,35 @@ type Props = {
   onClickBack: () => void;
 };
 
+export const convertFeeShare = (feeBps: number, totalPercent: string) => {
+  if (!totalPercent || !feeBps) {
+    return '0';
+  }
+
+  const feePercent = getPercentFromBasisPoints(feeBps);
+
+  return (
+    parseFloat(feePercent) *
+    (totalPercent.startsWith('0.') ? 1 : parseFloat(totalPercent))
+  ).toFixed(2);
+};
+
 export const Fees = ({ apiKey, onClickBack }: Props) => {
   // value based fee
   const valueBasedFee = getSimpleValueBasedFee(apiKey.feeRules);
+  const {
+    floorBps: auroraFloorBps,
+    stableFloorBps: auroraStableFloorBps,
+    cutPercent: auroraCutPercent,
+  } = getAuroraFeeConfig(apiKey.auroraFeeBps, apiKey.auroraFeePercent);
+
+  const clientCutPercent = 100 - auroraCutPercent;
+  const auroraMinPercent = getPercentFromBasisPoints(auroraFloorBps);
+  const auroraMinLabel =
+    auroraStableFloorBps != null
+      ? `min ${auroraMinPercent}%, ${getPercentFromBasisPoints(auroraStableFloorBps)}% on stable pairs`
+      : `min ${auroraMinPercent}%`;
+
   const [hasConfigAssetRules, setHasConfigAssetRules] = useState(
     apiKey.feeRules.rules.length > 0,
   );
@@ -87,9 +131,7 @@ export const Fees = ({ apiKey, onClickBack }: Props) => {
   const walletAddress = watch('walletAddress');
   const feeJson = watch('feeJson');
 
-  const { mutate: updateApiKey, ...mutation } = useUpdateApiKey(
-    apiKey.widgetApiKey,
-  );
+  const { mutate: updateApiKey, ...mutation } = useUpdateApiKey(apiKey.apiKey);
 
   const handleFeeJsonChange = (fee: string) => {
     const { data: config, error } = validateFeeConfig(fee);
@@ -99,10 +141,46 @@ export const Fees = ({ apiKey, onClickBack }: Props) => {
       setHasConfigAssetRules((config?.rules.length ?? 0) > 0);
     } else {
       setError('feeJson', { message: error });
+
+      const walletAddressError = getRecipientErrorFromJson(error);
+
+      if (walletAddressError) {
+        let recipient = '';
+
+        try {
+          const jsonData = JSON.parse(fee ?? '{}');
+
+          recipient = jsonData?.default_fee?.recipient ?? '';
+        } catch {
+          recipient = '';
+        }
+
+        setValue('walletAddress', recipient);
+        setError('walletAddress', { message: walletAddressError });
+      }
     }
   };
 
+  const syncCustomFeeInputsFromJson = (fee: string) => {
+    const { data: config, error } = validateFeeConfig(fee);
+
+    if (error !== undefined || !config) {
+      return false;
+    }
+
+    clearErrors(['walletAddress', 'customFee']);
+
+    setValue('walletAddress', config.default_fee.recipient);
+    setValue('customFee', getPercentFromBasisPoints(config.default_fee.bps));
+
+    return true;
+  };
+
   const handleToggleCustomFee = (isOpen: boolean) => {
+    if (isOpen) {
+      syncCustomFeeInputsFromJson(feeJson);
+    }
+
     setIsCustomFeeOpen(isOpen);
     setHasConfigAssetRules(false);
 
@@ -160,37 +238,28 @@ export const Fees = ({ apiKey, onClickBack }: Props) => {
     }
   }, [mutation.status]);
 
-  // sync values from custom fee to fee JSON
+  // sync values from custom fee inputs to fee JSON
   useEffect(() => {
     if (isCustomFeeOpen) {
-      const defaultFee = {
-        version: '1.0.0',
-        default_fee: {
-          type: 'bps',
-          recipient: walletAddress,
-          bps: getBasisPointsFromPercent(customFee),
-        },
-        rules: [],
-      };
-
-      setValue('feeJson', JSON.stringify(defaultFee, null, 2));
+      clearErrors('feeJson');
+      setValue(
+        'feeJson',
+        JSON.stringify(
+          getBasicFeeConfig(
+            getBasisPointsFromPercent(customFee),
+            walletAddress,
+          ),
+          null,
+          2,
+        ),
+      );
     }
   }, [customFee, walletAddress, isCustomFeeOpen]);
 
   // sync values from fee JSON to custom fee
   useEffect(() => {
     if (isJsonCodeOpen) {
-      const { data: rules, error } = validateFeeConfig(feeJson);
-
-      if (!!error || !rules) {
-        setValue('customFee', '');
-        setValue('walletAddress', '');
-
-        return;
-      }
-
-      setValue('customFee', getPercentFromBasisPoints(rules.default_fee.bps));
-      setValue('walletAddress', rules.default_fee.recipient);
+      syncCustomFeeInputsFromJson(feeJson);
     }
   }, [feeJson, isJsonCodeOpen]);
 
@@ -199,6 +268,13 @@ export const Fees = ({ apiKey, onClickBack }: Props) => {
       <NestedHeader onClickBack={onClickBack} title="Edit fees" />
 
       <div className="flex flex-col gap-csw-2xl my-csw-2xl">
+        {!!apiKey.feeRulesConfidential && (
+          <InfoBanner
+            title="Confidential swaps use separate fees"
+            description="This API key has its own fee configuration for confidential swaps, so the fees below apply to public swaps only."
+          />
+        )}
+
         <ExpandableToggleCard
           label="Add custom fee"
           isExpanded={isCustomFeeOpen}
@@ -207,7 +283,8 @@ export const Fees = ({ apiKey, onClickBack }: Props) => {
             <>
               Set up optional custom fees added on top of the protocol fee.{' '}
               <br className="hidden sm:block" />
-              You earn 60% of your custom fee; we retain 40%.
+              You earn {clientCutPercent}% of your custom fee; Aurora retains{' '}
+              {auroraCutPercent}% ({auroraMinLabel}).
             </>
           }>
           <div className="flex flex-col gap-csw-2xl">
@@ -222,7 +299,7 @@ export const Fees = ({ apiKey, onClickBack }: Props) => {
                 control={control}
                 render={({ field }) => (
                   <FeeInput
-                    suffix="1.00% max"
+                    suffix="5.00% max"
                     placeholder="0.00%"
                     state={errors.customFee ? 'error' : 'normal'}
                     value={field.value || ''}
@@ -233,6 +310,44 @@ export const Fees = ({ apiKey, onClickBack }: Props) => {
                   />
                 )}
               />
+              <ul className="flex flex-col gap-csw-sm mt-csw-md">
+                {(() => {
+                  const { auroraBps, clientBps, feeBps } = getFeeShare(
+                    customFee || '0',
+                    apiKey.auroraFeeBps,
+                    apiKey.auroraFeePercent,
+                  );
+
+                  const auroraPortion = feeBps
+                    ? Math.round((auroraBps / feeBps) * 100)
+                    : 0;
+
+                  const clientPortion = feeBps
+                    ? Math.round((clientBps / feeBps) * 100)
+                    : 0;
+
+                  return (
+                    <>
+                      <li className="flex items-center justify-between text-csw-label-sm">
+                        <span className="text-csw-gray-300">
+                          Aurora fee ({auroraMinLabel})
+                        </span>
+                        <span className="text-csw-gray-50">
+                          {convertFeeShare(auroraBps, customFee)}% (
+                          {auroraPortion}%)
+                        </span>
+                      </li>
+                      <li className="flex items-center justify-between text-csw-label-sm">
+                        <span className="text-csw-gray-300">Your share</span>
+                        <span className="text-csw-accent-500">
+                          {convertFeeShare(clientBps, customFee)}% (
+                          {clientPortion}%)
+                        </span>
+                      </li>
+                    </>
+                  );
+                })()}
+              </ul>
             </div>
 
             <div className="flex flex-col gap-csw-2md">
@@ -260,6 +375,11 @@ export const Fees = ({ apiKey, onClickBack }: Props) => {
                     }}
                   />
                 )}
+              />
+
+              <InfoBanner
+                title="Check fees recipient address"
+                description="Make sure it's a valid Near Intents account ID."
               />
             </div>
           </div>

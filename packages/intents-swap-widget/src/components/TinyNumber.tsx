@@ -5,13 +5,14 @@ import { formatTinyNumber } from '@/utils/formatters/formatTinyNumber';
 type Props = {
   value: string;
   decimals?: number;
-  symbol?: string;
   className?: string;
+  options?: Parameters<typeof formatTinyNumber>[1];
 };
 
-export const TinyNumber = ({ decimals, value, symbol, className }: Props) => {
+export const TinyNumber = ({ decimals, value, options, className }: Props) => {
   const formattedPrice = formatTinyNumber(
     parseFloat(decimals ? formatUnits(value, decimals) : value) ?? 0,
+    options,
   );
 
   if (!Array.isArray(formattedPrice)) {
@@ -25,12 +26,6 @@ export const TinyNumber = ({ decimals, value, symbol, className }: Props) => {
         {formattedPrice[1]}
       </span>
       {formattedPrice[2]}
-      {symbol ? (
-        <>
-          &nbsp;
-          {symbol}
-        </>
-      ) : null}
     </span>
   );
 };

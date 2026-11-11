@@ -1,6 +1,4 @@
-import { ChainsDropdown } from '../ChainsDropdown';
-
-import { CHAIN_ICONS } from '@/icons';
+import { CHAIN_ICONS, NEAR_INTENTS_ICON } from '@/icons';
 import { ChainShortcut } from '@/components/ChainShortcut';
 
 import { cn } from '@/utils/cn';
@@ -9,6 +7,7 @@ import { useConfig } from '@/config';
 import { noop } from '@/utils/noop';
 import { notReachable } from '@/utils/notReachable';
 import type { Chains, ChainsFilter } from '@/types/chain';
+import { ChainsDropdown } from '../ChainsDropdown';
 
 type SelectedChain = 'all' | 'intents' | Chains;
 
@@ -31,8 +30,7 @@ export const ChainsSelector = ({
 }: Props) => {
   const chains = useChains(variant);
   const { intentsAccountType } = useIntentsAccountType();
-  const { appIcon, appName, topChainShortcuts, enableAccountAbstraction } =
-    useConfig();
+  const { topChainShortcuts, enableAccountAbstraction } = useConfig();
 
   const topChains =
     topChainShortcuts?.(intentsAccountType) ??
@@ -40,17 +38,17 @@ export const ChainsSelector = ({
 
   return (
     <div
-      className={cn('flex items-center justify-between gap-sw-md', className)}>
+      className={cn('flex items-start justify-between gap-sw-md', className)}>
       <ChainShortcut.All
         isSelected={selectedChain === 'all'}
         onClick={() => onMsg({ type: 'on_select_chain', chain: 'all' })}
       />
 
-      <ul className="flex items-center gap-sw-md mr-auto">
-        {enableAccountAbstraction && (
+      <ul className="flex items-center gap-sw-md mr-auto flex-wrap h-[36px] overflow-hidden">
+        {enableAccountAbstraction && chainsFilter.intents !== 'none' && (
           <ChainShortcut
-            icon={appIcon}
-            label={appName}
+            icon={NEAR_INTENTS_ICON}
+            label="Intents Account"
             isSelected={selectedChain === 'intents'}
             onClick={() => onMsg({ type: 'on_select_chain', chain: 'intents' })}
           />

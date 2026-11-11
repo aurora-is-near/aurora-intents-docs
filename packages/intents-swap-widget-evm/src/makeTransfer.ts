@@ -1,0 +1,138 @@
+import {
+  type Chain,
+  createWalletClient,
+  custom,
+  encodeFunctionData,
+  erc20Abi,
+} from 'viem';
+import * as viemChains from 'viem/chains';
+import type { Eip1193Provider } from 'ethers';
+import type {
+  MakeTransferArgs,
+  TransferResult,
+} from '@aurora-is-near/intents-swap-widget';
+
+import type { MakeTransferOptions } from './types';
+import { makeVirtualChainTransfer } from './makeVirtualChainTransfer';
+import { isEvmAddress, isVirtualChain } from './utils';
+
+const findViemChain = (id: number): Chain | undefined =>
+  (Object.values(viemChains) as unknown[]).find(
+    (c): c is Chain =>
+      !!c &&
+      typeof c === 'object' &&
+      'id' in c &&
+      typeof (c as { id: unknown }).id === 'number' &&
+      (c as Chain).id === id,
+  );
+
+const switchEthereumChain = async (
+  targetChainId: number,
+  provider: Eip1193Provider,
+): Promise<void> => {
+  const currentChainIdHex = await provider.request({ method: 'eth_chainId' });
+  const currentChainId = parseInt(currentChainIdHex as string, 16);
+
+  if (currentChainId === targetChainId) {
+    return;
+  }
+
+  try {
+    await provider.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: `0x${targetChainId.toString(16)}` }],
+    });
+  } catch (error: unknown) {
+    if (
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code: unknown }).code === 4902
+    ) {
+      throw new Error(`Chain ${targetChainId} is not available.`);
+    }
+
+    throw new Error(
+      `Please switch to the correct network (Chain ID: ${targetChainId}) in your wallet`,
+    );
+  }
+};
+
+export const makeTransfer = async (
+  args: MakeTransferArgs,
+  { provider }: MakeTransferOptions,
+): Promise<Pick<TransferResult, 'hash'>> => {
+  const resolved = typeof provider === 'function' ? await provider() : provider;
+  const isVirtualChainSource = isVirtualChain(args.chain);
+
+  // When the source is a NEAR virtual chain (e.g. Aurora), the 1Click deposit
+  // address is a NEAR account (intents.near sub-account) rather than an EVM
+  // address.
+  if (!isVirtualChainSource && !isEvmAddress(args.address)) {
+    throw new Error(`Invalid EVM address: ${args.address}`);
+  }
+
+  if (!args.evmChainId) {
+    throw new Error('EVM chain ID is required for EVM transfers.');
+  }
+
+  if (!resolved) {
+    throw new Error('No injected Ethereum wallet found.');
+  }
+
+  await switchEthereumChain(args.evmChainId, resolved);
+
+  const walletClient = createWalletClient({
+    transport: custom(resolved as Parameters<typeof custom>[0]),
+  });
+
+  let [from] = await walletClient.getAddresses();
+
+  if (!from) {
+    [from] = await walletClient.requestAddresses();
+  }
+
+  if (!from) {
+    throw new Error('No EVM account found in the injected wallet.');
+  }
+
+  const chain = findViemChain(args.evmChainId) ?? null;
+
+  if (isVirtualChainSource) {
+    return makeVirtualChainTransfer(args, {
+      walletClient,
+      from,
+      chain,
+    });
+  }
+
+  if (args.isNativeEvmTokenTransfer) {
+    const hash = await walletClient.sendTransaction({
+      account: from,
+      to: args.address as `0x${string}`,
+      value: BigInt(args.amount),
+      chain,
+    });
+
+    return { hash };
+  }
+
+  if (!args.tokenAddress || !isEvmAddress(args.tokenAddress)) {
+    throw new Error(`Invalid EVM token address: ${args.tokenAddress}`);
+  }
+
+  const data = encodeFunctionData({
+    abi: erc20Abi,
+    functionName: 'transfer',
+    args: [args.address as `0x${string}`, BigInt(args.amount)],
+  });
+
+  const hash = await walletClient.sendTransaction({
+    account: from,
+    to: args.tokenAddress as `0x${string}`,
+    data,
+    chain,
+  });
+
+  return { hash };
+};

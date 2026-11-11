@@ -1,18 +1,19 @@
 import { useEffect, useMemo } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 
-import { parse } from './parse';
-import { createLoader } from './load';
-import { useSupportedChains } from '../../hooks/useSupportedChains';
-import { isAlchemySupportedChain } from './types';
-import type { AlchemyResponse } from './types';
-import type { WalletAddresses } from '../../types';
-
 import { fireEvent } from '@/machine';
 import { useTokens } from '@/hooks/useTokens';
 import { guardStates } from '@/machine/guards';
 import { useUnsafeSnapshot } from '@/machine/snap';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
+import { getTokenBalanceKey } from '@/utils/intents/getTokenBalanceKey';
+import { parse } from './parse';
+import { createLoader } from './load';
+import { useConfig } from '../../config';
+import { getSupportedChains } from '../../utils/chains/getSupportedChains';
+import { isAlchemySupportedChain } from './types';
+import type { AlchemyResponse } from './types';
+import type { Chains, WalletAddresses } from '../../types';
 
 type Args = {
   isEnabled: boolean;
@@ -30,8 +31,24 @@ export const useAlchemyBalanceIntegration = ({
   const { ctx } = useUnsafeSnapshot();
 
   const { tokens } = useTokens();
-  const { supportedChains } = useSupportedChains();
+  const { walletSupportedChains } = useConfig();
   const { setWalletBalance } = useWalletBalance(connectedWallets);
+
+  // Balances are fetched for every connected wallet, so derive chains from all
+  // of them rather than from the source token's wallet (`useSupportedChains`),
+  // which covers a single wallet only (e.g. just EVM for `{ default, sol }`).
+  const supportedChains = useMemo(
+    () => [
+      ...new Set(
+        Object.values(connectedWallets)
+          .filter((address): address is string => !!address)
+          .flatMap((walletAddress): readonly Chains[] =>
+            getSupportedChains({ walletAddress, walletSupportedChains }),
+          ),
+      ),
+    ],
+    [connectedWallets, walletSupportedChains],
+  );
 
   const isEnabled =
     args.isEnabled &&
@@ -89,8 +106,10 @@ export const useAlchemyBalanceIntegration = ({
     tokens.forEach((token) => {
       const inAllowed = isAlchemySupportedChain(token.blockchain);
 
-      if (inAllowed && !(token.assetId in balances)) {
-        balances[token.assetId] = '0';
+      const balanceKey = getTokenBalanceKey(token);
+
+      if (inAllowed && !(balanceKey in balances)) {
+        balances[balanceKey] = '0';
       }
     });
 
@@ -98,16 +117,18 @@ export const useAlchemyBalanceIntegration = ({
   }, [query.data, tokens]);
 
   useEffect(() => {
-    const validState = guardStates(ctx, ['initial_wallet']);
+    // Store balances regardless of the machine state: the machine leaves
+    // `initial_wallet` once a quote runs or a source token from another
+    // wallet's chain is picked, and refetches must still reach the cache.
+    setWalletBalance(connectedWallets, balancesMap);
 
-    if (validState) {
-      setWalletBalance(connectedWallets, balancesMap);
+    if (guardStates(ctx, ['initial_wallet'])) {
+      const sourceKey = ctx.sourceToken
+        ? getTokenBalanceKey(ctx.sourceToken)
+        : undefined;
 
-      if (
-        ctx.sourceToken &&
-        Object.keys(balancesMap).includes(ctx.sourceToken.assetId)
-      ) {
-        fireEvent('tokenSetBalance', balancesMap[ctx.sourceToken.assetId]);
+      if (sourceKey && Object.keys(balancesMap).includes(sourceKey)) {
+        fireEvent('tokenSetBalance', balancesMap[sourceKey]);
       }
     }
   }, [balancesMap]);

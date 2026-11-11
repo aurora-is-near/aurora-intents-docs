@@ -8,17 +8,23 @@ export { isEvmToken } from './evm/isEvmToken';
 export { isEvmBaseToken } from './evm/isEvmBaseToken';
 export { getEvmTokenBalance } from './evm/getEvmTokenBalance';
 export { getEvmMainTokenBalance } from './evm/getEvmMainTokenBalance';
+export { switchEthereumChain } from './evm/switchEthereumChain';
 
 export { formatBigToHuman } from './formatters/formatBigToHuman';
 export { formatHumanToBig } from './formatters/formatHumanToBig';
 export { formatTinyNumber } from './formatters/formatTinyNumber';
 export { formatTxHash } from './formatters/formatTxHash';
 export { formatUsdAmount } from './formatters/formatUsdAmount';
-export { getExplorerUrl } from './formatters/getExplorerUrl';
 export { getTransactionLink } from './formatters/getTransactionLink';
 export { formatAddressTruncate } from './formatters/formatAddressTruncate';
+
+export { getWebAuthnIntentsAccountId } from './intents/getWebAuthnIntentsAccountId';
+export { getIntentsTargetToken } from './tokens/getIntentsTargetToken';
+export { findTransactionToken } from './transactions/findTransactionToken';
 
 export { cn } from './cn';
 export { noop } from './noop';
 export { notReachable } from './notReachable';
+export { copyToClipboard } from './copyToClipboard';
 export { isErrorLikeObject } from './isErrorLikeObject';
+export { warnIncompleteConfig } from './warnIncompleteConfig';

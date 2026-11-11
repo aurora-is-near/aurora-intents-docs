@@ -4,20 +4,20 @@ import { DeleteW700 as Delete } from '@material-symbols-svg/react-rounded/icons/
 import { EditSquareW700 as Edit } from '@material-symbols-svg/react-rounded/icons/edit-square';
 import { ContentCopyW700 as Copy } from '@material-symbols-svg/react-rounded/icons/content-copy';
 
+import { Button } from '@/uikit/Button';
+import { useDeleteApiKey } from '@/api/hooks';
+import { copyToClipboard } from '@/utils/copyToClipboard';
+import type { ApiKey } from '@/api/types';
 import {
   getPercentFromBasisPoints,
   getSimpleValueBasedFee,
   maskApiKey,
 } from '../utils';
 
-import { Button } from '@/uikit/Button';
-import { useDeleteApiKey } from '@/api/hooks';
-import type { ApiKey } from '@/api/types';
-
 type Props = {
   apiKey: ApiKey;
   onClickFees: (apiKey: ApiKey) => void;
-  onKeyRemoved: (apiKey: string) => void;
+  onKeyRemoved?: (apiKey: string) => void;
 };
 
 const formatDate = (dateString: string) => {
@@ -34,11 +34,11 @@ export const ApiKeyCard = ({ apiKey, onClickFees, onKeyRemoved }: Props) => {
   const [isCopied, setIsCopied] = useState(false);
 
   const { mutate: deleteApiKey, status: deleteApiKeyStatus } = useDeleteApiKey(
-    apiKey.widgetApiKey,
+    apiKey.apiKey,
   );
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(apiKey.widgetApiKey);
+    await copyToClipboard(apiKey.apiKey);
     setTimeout(() => setIsCopied(false), 2000);
     setIsCopied(true);
   };
@@ -47,7 +47,7 @@ export const ApiKeyCard = ({ apiKey, onClickFees, onKeyRemoved }: Props) => {
 
   useEffect(() => {
     if (deleteApiKeyStatus === 'success') {
-      onKeyRemoved(apiKey.widgetApiKey);
+      onKeyRemoved?.(apiKey.apiKey);
     }
   }, [deleteApiKeyStatus]);
 
@@ -74,7 +74,7 @@ export const ApiKeyCard = ({ apiKey, onClickFees, onKeyRemoved }: Props) => {
 
       <div className="flex items-center justify-between w-full p-csw-2md rounded-csw-md bg-csw-gray-800">
         <span className="text-csw-label-md text-csw-gray-50">
-          {maskApiKey(apiKey.widgetApiKey)}
+          {maskApiKey(apiKey.apiKey)}
         </span>
         <button className="cursor-pointer" onClick={handleCopy}>
           {isCopied ? (

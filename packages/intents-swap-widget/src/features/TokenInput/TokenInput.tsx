@@ -1,22 +1,22 @@
-import { useId } from 'react';
+import { useId, useState } from 'react';
 
-import { WalletBalance } from './WalletBalance';
-import { getBalancePortion } from './utils/getBalancePortion';
-import { getUsdDisplayAmount } from './utils/getUsdDisplayAmount';
-
-import { TokenInputHeading } from './TokenInputHeading';
-import { useUnsafeSnapshot } from '../../machine';
-import { useSupportedChains } from '../../hooks/useSupportedChains';
 import { cn } from '@/utils/cn';
 import { noop } from '@/utils/noop';
 import { useConfig } from '@/config';
 import { useTypedTranslation } from '@/localisation';
 
 import { Card } from '@/components/Card';
-import { Badge } from '@/components/Badge';
-import { TokenIcon } from '@/components/TokenIcon';
 import { InputAmount } from '@/components/InputAmount';
+import { isNotEmptyAmount } from '@/utils/checkers/isNotEmptyAmount';
+import { TokenSelectButton } from '@/components/TokenSelectButton';
 import type { Token, TokenBalance } from '@/types/token';
+import { useSupportedChains } from '../../hooks/useSupportedChains';
+import { TokenInputHeading } from './TokenInputHeading';
+import { useUnsafeSnapshot } from '../../machine';
+import { getUsdDisplayAmount } from './utils/getUsdDisplayAmount';
+import { getBalancePortion } from './utils/getBalancePortion';
+import { WalletBalance } from './WalletBalance';
+import { BalanceBadges } from './BalanceBadges';
 
 export type Msg =
   | { type: 'on_click_select_token' }
@@ -51,6 +51,11 @@ export const TokenInputWithToken = ({
   const inputName = useId();
   const { ctx } = useUnsafeSnapshot();
   const { t } = useTypedTranslation();
+
+  const [isBlockHovered, setIsBlockHovered] = useState(false);
+  const [isAmountFocused, setIsAmountFocused] = useState(false);
+  const areQuickActionsVisible = isBlockHovered || isAmountFocused;
+
   const { hideTokenInputHeadings } = useConfig();
   const { supportedChains } = useSupportedChains();
 
@@ -64,104 +69,102 @@ export const TokenInputWithToken = ({
   };
 
   return (
-    <Card className="flex flex-col" aria-label={heading}>
-      {!hideTokenInputHeadings && (
-        <TokenInputHeading>{heading}</TokenInputHeading>
+    <div className="relative rounded-sw-lg overflow-hidden">
+      {state === 'disabled' && (
+        <div className="absolute z-2 inset-0 w-full h-full bg-sw-gray-900 opacity-75" />
       )}
-      <div
-        className={cn(
-          'flex items-center justify-between',
-          !hideTokenInputHeadings && 'mt-sw-2xl',
-        )}>
-        <InputAmount
-          value={value}
-          name={inputName}
-          setValue={noop}
-          placeholder="0"
-          state={state === 'default' || state === 'disabled' ? state : 'error'}
-          onChange={(e) => {
-            onMsg({ type: 'on_change_amount', amount: e.target.value });
-          }}
-        />
-        <button
-          type="button"
-          onClick={
-            state === 'disabled'
-              ? undefined
-              : () => onMsg({ type: 'on_click_select_token' })
-          }
+      <Card
+        className="flex flex-col px-sw-2xl py-sw-xl"
+        aria-label={heading}
+        onMouseEnter={() => setIsBlockHovered(true)}
+        onMouseLeave={() => setIsBlockHovered(false)}>
+        {!hideTokenInputHeadings && (
+          <div className="gap-sw-md -mb-sw-lg flex items-center justify-between">
+            <TokenInputHeading>{heading}</TokenInputHeading>
+          </div>
+        )}
+        <div
           className={cn(
-            'gap-sw-md pl-sw-sm pr-sw-md flex h-[36px] min-w-[80px] shrink-0 items-center rounded-sw-md transition-colors bg-sw-gray-800 hover:bg-sw-gray-700 group',
-            {
-              'cursor-pointer': state !== 'disabled',
-              'animate-pulse cursor-default': state === 'disabled',
-            },
+            'flex items-center justify-between',
+            !hideTokenInputHeadings && 'mt-sw-2xl',
           )}>
-          <TokenIcon
-            token={token}
-            chainShowIcon={!token.isIntent}
-            className="border-sw-gray-800 group-hover:border-sw-gray-700 transition-colors top-[14px]"
+          <InputAmount
+            value={value}
+            name={inputName}
+            setValue={noop}
+            placeholder="0"
+            state={
+              state === 'default' || state === 'disabled' ? state : 'error'
+            }
+            onFocus={() => setIsAmountFocused(true)}
+            onBlur={() => setIsAmountFocused(false)}
+            onChange={(e) => {
+              onMsg({ type: 'on_change_amount', amount: e.target.value });
+            }}
           />
-          <span className="text-sw-label-md text-sw-gray-50">
-            {token.symbol}
-          </span>
-        </button>
-      </div>
-      <div className="gap-sw-sm min-h-sw-2xl flex items-center justify-between mt-sw-lg">
-        <div className="gap-sw-md flex items-center">
-          <span className="text-sw-label-sm text-sw-gray-100">{usdAmount}</span>
-          {quoteUsdDelta ? (
-            <span
-              className={cn('text-sw-label-sm text-nowrap', {
-                'text-sw-gray-400': quoteUsdDelta >= -2 && quoteUsdDelta <= 2,
-                'text-sw-status-success': quoteUsdDelta > 2,
-                'text-sw-status-error': quoteUsdDelta <= -5,
-                'text-sw-status-warning':
-                  quoteUsdDelta < -2 && quoteUsdDelta > -5,
-              })}>
-              {`${quoteUsdDelta > 0 ? '+' : ''}${quoteUsdDelta.toFixed(2)}%`}
-            </span>
-          ) : null}
+          <TokenSelectButton
+            token={token}
+            state={state === 'disabled' ? 'disabled' : 'default'}
+            onClick={() => onMsg({ type: 'on_click_select_token' })}
+          />
         </div>
-        <div className="gap-sw-sm flex items-center">
-          {token && !!ctx.walletAddress && showBalance && (
-            <WalletBalance
-              token={token}
-              balance={balance}
-              isNotSufficient={state === 'error-balance'}
-              onClick={() => onSetPortionOfBalance(1)}
-            />
-          )}
-
-          {!!balance && showBalance && showQuickBalanceActions && (
-            <>
-              <Badge
-                isClickable={state !== 'disabled'}
-                onClick={() => onSetPortionOfBalance(2)}>
-                {t('tokens.input.half.label', '50%')}
-              </Badge>
-              <Badge
-                isClickable={state !== 'disabled'}
-                onClick={() => onSetPortionOfBalance(1)}>
-                {t('tokens.input.max.label', 'Max')}
-              </Badge>
-            </>
-          )}
-
-          {!showBalance && (
-            <span
-              className="text-sw-gray-200 text-sw-label-sm"
-              style={{ borderBottomWidth: '2px', borderStyle: 'dotted' }}>
-              {supportedChains.includes(token.blockchain)
-                ? t('tokens.input.externalBalance.label', 'External balance')
-                : t(
-                    'tokens.input.externalBalanceOnly.label',
-                    'External balance only',
-                  )}
+        <div className="gap-sw-sm min-h-sw-2xl flex items-center justify-between mt-sw-md">
+          <div className="gap-sw-md flex items-center">
+            <span className="text-sw-label-sm text-sw-gray-100">
+              {usdAmount}
             </span>
-          )}
+            {quoteUsdDelta ? (
+              <span
+                className={cn('text-sw-label-sm text-nowrap', {
+                  'text-sw-gray-400': quoteUsdDelta >= -2 && quoteUsdDelta <= 2,
+                  'text-sw-status-success': quoteUsdDelta > 2,
+                  'text-sw-status-error': quoteUsdDelta <= -5,
+                  'text-sw-status-warning':
+                    quoteUsdDelta < -2 && quoteUsdDelta > -5,
+                })}>
+                {`${quoteUsdDelta > 0 ? '+' : ''}${quoteUsdDelta.toFixed(2)}%`}
+              </span>
+            ) : null}
+          </div>
+
+          {isNotEmptyAmount(balance) &&
+            showBalance &&
+            showQuickBalanceActions && (
+              <BalanceBadges
+                token={token}
+                balance={balance}
+                isClickable={state !== 'disabled'}
+                areQuickActionsVisible={areQuickActionsVisible}
+                className="ml-auto mr-sw-xxs"
+                onMsg={onMsg}
+              />
+            )}
+
+          <div className="gap-sw-sm flex items-center">
+            {token && !!ctx.walletAddress && showBalance && (
+              <WalletBalance
+                token={token}
+                balance={balance}
+                isNotSufficient={state === 'error-balance'}
+                onClick={() => onSetPortionOfBalance(1)}
+              />
+            )}
+
+            {!showBalance && (
+              <span
+                className="text-sw-gray-200 text-sw-label-sm"
+                style={{ borderBottomWidth: '2px', borderStyle: 'dotted' }}>
+                {supportedChains.includes(token.blockchain)
+                  ? t('tokens.input.externalBalance.label', 'External balance')
+                  : t(
+                      'tokens.input.externalBalanceOnly.label',
+                      'External balance only',
+                    )}
+              </span>
+            )}
+          </div>
         </div>
-      </div>
-    </Card>
+      </Card>
+    </div>
   );
 };
