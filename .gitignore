@@ -1,46 +1,19 @@
-# Packages
-.yalc
-yalc.lock
-node_modules/
-
-# Build
-dist/
-*.tsbuildinfo
-
-# Logs
-*.log
-
 # OS
 .DS_Store
 
-# IDE
+# Editors
 .idea/
-
-# Tests
-coverage/
-.jest/
-spec.json
-
-# Vi
-*.swp
-
-# Environment
-.env
-.env.local
-
-# vercel
-.vercel
-
-# Turbo
-.turbo
-
-# Sentry
-.env.sentry-build-plugin
-
-# VSCode
 .vscode/
+*.swp
+*.swo
+*~
 
-# AI
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Local agent tooling
 .code-review-graph/
 .codex/
 .claude/
