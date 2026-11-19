@@ -50,6 +50,8 @@ Integrators can configure their fee collection settings directly for each API ke
    * **Wallet address** — the recipient wallet address on the selected chain.
 6. Click **Save address** to save your configuration.
 
+<figure><img src="../../.gitbook/assets/Screenshot 2026-11-19 at 11.02.44.png" alt="" width="563"><figcaption></figcaption></figure>
+
 Once configured, fees associated with the API key will be collected according to your selected settings and sent to the designated wallet when the withdrawal threshold is reached.
 
 > **Note:** Ensure that the recipient wallet address supports the selected chain and asset before saving your configuration.
