@@ -10,15 +10,15 @@ For example, an integrator can choose to receive all collected fees as **USDC on
 
 ### How it works
 
-Fees generated through the integration accrue automatically and are consolidated into the integrator’s selected **target asset**.
+Fees generated through the integration accrue automatically and, when fee conversion is enabled, are consolidated into the integrator's selected **target asset**.
 
-The accumulated balance is withdrawn to the integrator’s designated recipient address once it reaches the configured withdrawal threshold.
+The accumulated balance is withdrawn to the integrator's designated recipient address once it reaches the configured withdrawal threshold.
 
 By default:
 
-* Fees are collected in the integrator’s selected target asset.
 * The default withdrawal threshold is **$1,000 USD**.
 * Once the threshold is reached, the accumulated fees are sent to the configured recipient address on the target chain.
+* When fee conversion is enabled, fees are collected in the selected target asset.
 
 This means integrators do not need to manage individual fee balances across different assets or manually consolidate them.
 
@@ -26,20 +26,36 @@ This means integrators do not need to manage individual fee balances across diff
 
 An integrator chooses:
 
-**Target chain:** Base **Target asset:** USDC **Recipient:** `0x...`
+* **Target chain:** Base
+* **Target asset:** USDC
+* **Recipient:** `0x...`
 
-As users transact through the integration, the integrator’s fees accumulate and are converted into USDC. Once the accumulated value reaches the configured threshold, the USDC is withdrawn to the provided recipient address.
+As users transact through the integration, the integrator's fees accumulate and are converted into USDC. Once the accumulated value reaches the configured threshold, the USDC is withdrawn to the provided recipient address.
 
-### Requesting Fees Collection
+### Configuring Fees Collection
 
-Fees Collection is configured by Aurora.
+Fees Collection supports **self-service configuration** through the [Aurora Intents Client Portal](https://portal.intents.aurora.dev/).
 
-To enable it for your integration, contact Aurora and provide:
+Integrators can configure their fee collection settings directly for each API key, without needing to contact Aurora.
 
-* **Target chain** — the chain where you want to receive the collected fees
-* **Target asset** — the asset in which you want to receive the fees; **USDC is typically recommended**
-* **Recipient address** — the address on the target chain that should receive the funds
+#### Self-service configuration
 
-Aurora will configure the fee collection flow for your integration.
+1. Open the [Aurora Intents Client Portal](https://portal.intents.aurora.dev/).
+2. Select the API key for which you want to configure fee collection.
+3. Navigate to the **Fee collection address** settings.
+4. Enable **Fee conversion** if you want all collected fees to be converted into a single asset instead of receiving fees in the assets used by individual swaps.
+5. Select **On-chain wallet address** and configure:
+   * **Chain** — the blockchain network where you want to receive your collected fees.
+   * **Asset** — the asset in which you want to receive your fees (USDC is typically recommended).
+   * **Wallet address** — the recipient wallet address on the selected chain.
+6. Click **Save address** to save your configuration.
 
-If you require a withdrawal threshold other than the default **$1,000 USD**, include it in your request.
+Once configured, fees associated with the API key will be collected according to your selected settings and sent to the designated wallet when the withdrawal threshold is reached.
+
+> **Note:** Ensure that the recipient wallet address supports the selected chain and asset before saving your configuration.
+
+#### Custom withdrawal thresholds
+
+The default withdrawal threshold is **$1,000 USD**.
+
+If you require a different withdrawal threshold or need assistance with your fee collection configuration, contact the Aurora team.
